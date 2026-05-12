@@ -12,6 +12,7 @@ runtime_vm_forward_allowed_sources:
 runtime_allowed_ssh_public_keys: []
 
 runtime_base_packages:
+  - ansible
   - ca-certificates
   - cloud-init
   - cloud-image-utils

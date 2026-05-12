@@ -1,0 +1,163 @@
+---
+- name: 세션 VM kubeadm 사전 Bootstrap
+  ansible.builtin.import_playbook: bootstrap-vm.yml
+
+- name: kubeadm control-plane 구성
+  hosts: session_vms
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+
+  vars:
+    kubeadm_pod_network_cidr: "10.244.0.0/16"
+    kubeadm_service_cidr: "10.96.0.0/12"
+    kubeadm_apiserver_port: 6443
+    kubeadm_control_plane_host: "{{ groups['session_vms'] | map('extract', hostvars) | selectattr('vm_role', 'equalto', 'control-plane') | map(attribute='inventory_hostname') | first }}"
+    kubeadm_control_plane_ip: "{{ hostvars[kubeadm_control_plane_host].ansible_host }}"
+    kubeadm_kubeconfig_dir: "/var/lib/cka/sessions/{{ session_id }}/kubeconfig"
+    kubeadm_local_kubeconfig: "{{ kubeadm_kubeconfig_dir }}/vm-admin.conf"
+
+  pre_tasks:
+    - name: session_id 확인
+      ansible.builtin.assert:
+        that:
+          - session_id is defined
+          - session_id | length > 0
+        fail_msg: "session_id가 필요합니다."
+
+    - name: control-plane VM이 1대인지 확인
+      ansible.builtin.assert:
+        that:
+          - groups['session_vms'] | map('extract', hostvars) | selectattr('vm_role', 'equalto', 'control-plane') | list | length == 1
+        fail_msg: "session_vms 그룹에는 vm_role=control-plane VM이 정확히 1대 필요합니다."
+
+  tasks:
+    - name: kubeadm init 완료 여부 확인
+      ansible.builtin.stat:
+        path: /etc/kubernetes/admin.conf
+      register: kubeadm_admin_conf
+
+    - name: control-plane kubeadm init 실행
+      ansible.builtin.command:
+        cmd: >-
+          kubeadm init
+          --apiserver-advertise-address={{ kubeadm_control_plane_ip }}
+          --apiserver-bind-port={{ kubeadm_apiserver_port }}
+          --pod-network-cidr={{ kubeadm_pod_network_cidr }}
+          --service-cidr={{ kubeadm_service_cidr }}
+          --node-name={{ inventory_hostname }}
+      register: kubeadm_init_result
+      changed_when: true
+      when:
+        - vm_role == "control-plane"
+        - not kubeadm_admin_conf.stat.exists
+
+    - name: 사용자 kubeconfig 디렉토리 생성
+      ansible.builtin.file:
+        path: /home/{{ ansible_user }}/.kube
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0700"
+      when: vm_role == "control-plane"
+
+    - name: 사용자 kubeconfig 배치
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/{{ ansible_user }}/.kube/config
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0600"
+        remote_src: true
+      when: vm_role == "control-plane"
+
+    - name: Flannel CNI 설치
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+      register: flannel_apply_result
+      changed_when: "'created' in flannel_apply_result.stdout or 'configured' in flannel_apply_result.stdout"
+      when: vm_role == "control-plane"
+
+    - name: worker join command 생성
+      ansible.builtin.command:
+        cmd: kubeadm token create --print-join-command
+      register: kubeadm_join_command
+      changed_when: false
+      no_log: true
+      when: vm_role == "control-plane"
+
+    - name: worker kubelet.conf 확인
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: worker_kubelet_conf
+      when: vm_role == "worker"
+
+    - name: worker join 실행
+      ansible.builtin.command:
+        cmd: "{{ hostvars[kubeadm_control_plane_host].kubeadm_join_command.stdout }} --node-name={{ inventory_hostname }}"
+      changed_when: true
+      no_log: true
+      when:
+        - vm_role == "worker"
+        - not worker_kubelet_conf.stat.exists
+
+    - name: 노드 Ready 상태 대기
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig /etc/kubernetes/admin.conf wait --for=condition=Ready nodes --all --timeout=300s
+      changed_when: false
+      when: vm_role == "control-plane"
+
+    - name: kubeconfig 수집 디렉토리 생성
+      ansible.builtin.file:
+        path: "{{ kubeadm_kubeconfig_dir }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: VM admin kubeconfig를 miniPC로 수집
+      ansible.builtin.fetch:
+        src: /etc/kubernetes/admin.conf
+        dest: "{{ kubeadm_local_kubeconfig }}"
+        flat: true
+      when: vm_role == "control-plane"
+
+    - name: VM kubeconfig server 주소를 control-plane IP로 보정
+      ansible.builtin.replace:
+        path: "{{ kubeadm_local_kubeconfig }}"
+        regexp: 'server: https://127\.0\.0\.1:{{ kubeadm_apiserver_port }}'
+        replace: "server: https://{{ kubeadm_control_plane_ip }}:{{ kubeadm_apiserver_port }}"
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: VM kubeconfig context 이름 설정
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig {{ kubeadm_local_kubeconfig }} config rename-context kubernetes-admin@kubernetes cka-vm
+      register: rename_vm_context
+      changed_when: rename_vm_context.rc == 0
+      failed_when: rename_vm_context.rc not in [0, 1]
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: VM kubeconfig current-context 설정
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig {{ kubeadm_local_kubeconfig }} config use-context cka-vm
+      changed_when: false
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: 최종 노드 목록 출력
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig /etc/kubernetes/admin.conf get nodes -o wide
+      register: kubeadm_nodes
+      changed_when: false
+      when: vm_role == "control-plane"
+
+    - name: kubeadm bootstrap 결과 출력
+      ansible.builtin.debug:
+        var: kubeadm_nodes.stdout_lines
+      when: vm_role == "control-plane"
