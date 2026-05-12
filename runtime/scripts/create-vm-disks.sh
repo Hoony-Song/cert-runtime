@@ -12,10 +12,11 @@ USAGE
 SESSION_ID=""
 EXAM_TYPE="CKA"
 EXAM_SET_ID=""
-BASE_IMAGE="${CKA_VM_BASE_IMAGE:-/var/lib/cka/images/base/cka-ubuntu-22.04-kubeadm-1.30-v1.qcow2}"
+BASE_IMAGE="${CKA_VM_BASE_IMAGE:-/var/lib/cka/images/base/cka-ubuntu-22.04-kubeadm-1.30-v1/cka-ubuntu-22.04-kubeadm-1.30-v1.qcow2}"
 SESSION_DISK_DIR="${CKA_VM_SESSION_DISK_DIR:-/var/lib/cka/images/sessions}"
 DRY_RUN=false
 VERBOSE=false
+LIBVIRT_ACCESS_GROUP="${CKA_VM_LIBVIRT_ACCESS_GROUP:-kvm}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -93,7 +94,10 @@ if [[ ! -f "${BASE_IMAGE}" ]]; then
 fi
 
 mkdir -p "${SESSION_DISK_DIR}"
-chmod 0750 "${SESSION_DISK_DIR}"
+if getent group "${LIBVIRT_ACCESS_GROUP}" >/dev/null 2>&1; then
+  chgrp "${LIBVIRT_ACCESS_GROUP}" "${SESSION_DISK_DIR}"
+fi
+chmod 2770 "${SESSION_DISK_DIR}"
 
 CREATED_DISKS=()
 cleanup_partial_disks() {
@@ -110,7 +114,10 @@ create_overlay_disk() {
   local target="$1"
 
   qemu-img create -f qcow2 -F qcow2 -b "${BASE_IMAGE}" "${target}" >/dev/null
-  chmod 0600 "${target}"
+  if getent group "${LIBVIRT_ACCESS_GROUP}" >/dev/null 2>&1; then
+    chgrp "${LIBVIRT_ACCESS_GROUP}" "${target}"
+  fi
+  chmod 0660 "${target}"
   CREATED_DISKS+=("${target}")
 }
 
@@ -125,7 +132,10 @@ create_overlay_disk "${WORKER_DISK}"
   printf 'control_plane_disk=%s\n' "${CP_DISK}"
   printf 'worker_disk=%s\n' "${WORKER_DISK}"
 } > "${MANIFEST}"
-chmod 0600 "${MANIFEST}"
+if getent group "${LIBVIRT_ACCESS_GROUP}" >/dev/null 2>&1; then
+  chgrp "${LIBVIRT_ACCESS_GROUP}" "${MANIFEST}"
+fi
+chmod 0660 "${MANIFEST}"
 
 trap - ERR
 

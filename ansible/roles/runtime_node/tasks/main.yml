@@ -66,11 +66,65 @@
     state: present
   notify: Restart libvirtd
 
+- name: Runtime Node inotify 한도 설정
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+  loop:
+    - name: fs.inotify.max_user_instances
+      value: "{{ runtime_inotify_max_user_instances }}"
+    - name: fs.inotify.max_user_watches
+      value: "{{ runtime_inotify_max_user_watches }}"
+  notify: Restart libvirtd
+
 - name: Libvirtd 서비스 활성화
   ansible.builtin.service:
     name: libvirtd
     enabled: true
     state: started
+
+- name: Libvirt 기본 VM 네트워크 상태 확인
+  ansible.builtin.command:
+    cmd: "virsh net-info {{ runtime_libvirt_network }}"
+  register: runtime_libvirt_network_info
+  changed_when: false
+
+- name: Libvirt 기본 VM 네트워크 시작
+  ansible.builtin.command:
+    cmd: "virsh net-start {{ runtime_libvirt_network }}"
+  changed_when: true
+  when: >-
+    'Active:          yes' not in runtime_libvirt_network_info.stdout and
+    'Active:         yes' not in runtime_libvirt_network_info.stdout
+
+- name: Libvirt 기본 VM 네트워크 자동 시작 상태 확인
+  ansible.builtin.command:
+    cmd: "virsh net-info {{ runtime_libvirt_network }}"
+  register: runtime_libvirt_network_autostart_info
+  changed_when: false
+
+- name: Libvirt 기본 VM 네트워크 자동 시작 설정
+  ansible.builtin.command:
+    cmd: "virsh net-autostart {{ runtime_libvirt_network }}"
+  changed_when: true
+  when: >-
+    'Autostart:      yes' not in runtime_libvirt_network_autostart_info.stdout and
+    'Autostart:       yes' not in runtime_libvirt_network_autostart_info.stdout
+
+- name: MiniPC에서 Runtime VM 네트워크 접근 허용
+  ansible.builtin.iptables:
+    chain: LIBVIRT_FWI
+    source: "{{ item }}"
+    destination: "{{ runtime_vm_network_cidr }}"
+    out_interface: "{{ runtime_vm_network_bridge }}"
+    jump: ACCEPT
+    action: insert
+    rule_num: "1"
+    state: present
+  loop: "{{ runtime_vm_forward_allowed_sources }}"
+  when: runtime_vm_forward_allowed_sources | length > 0
 
 - name: Runtime user를 libvirt 관련 그룹에 추가
   ansible.builtin.user:
@@ -86,8 +140,8 @@
     path: "{{ item }}"
     state: directory
     owner: "{{ runtime_user }}"
-    group: "{{ runtime_group }}"
-    mode: "0750"
+    group: "{{ runtime_libvirt_access_group }}"
+    mode: "2770"
   loop: "{{ runtime_directories }}"
 
 - name: Kind 바이너리 설치

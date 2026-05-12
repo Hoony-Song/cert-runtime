@@ -17,13 +17,14 @@ OUTPUT_DIR=""
 ISO_PATH=""
 EXAM_TYPE="CKA"
 VM_USERNAME="ubuntu"
-VM_INTERFACE="ens3"
+VM_INTERFACE="enp1s0"
 NETWORK_MODE="dhcp"
 VM_IP_CIDR=""
 VM_GATEWAY=""
 VM_DNS=""
 DRY_RUN=false
 VERBOSE=false
+LIBVIRT_ACCESS_GROUP="${CKA_VM_LIBVIRT_ACCESS_GROUP:-kvm}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -173,6 +174,12 @@ if ! command -v cloud-localds >/dev/null 2>&1; then
   exit 1
 fi
 
+mkdir -p "${OUTPUT_DIR}"
+if getent group "${LIBVIRT_ACCESS_GROUP}" >/dev/null 2>&1; then
+  chgrp "${LIBVIRT_ACCESS_GROUP}" "${OUTPUT_DIR}"
+fi
+chmod 2770 "${OUTPUT_DIR}"
+
 "${SCRIPT_DIR}/render-cloud-init.sh" \
   --session-id "${SESSION_ID}" \
   --vm-role "${VM_ROLE}" \
@@ -183,13 +190,21 @@ fi
   --vm-username "${VM_USERNAME}" \
   --vm-interface "${VM_INTERFACE}"
 
+if getent group "${LIBVIRT_ACCESS_GROUP}" >/dev/null 2>&1; then
+  chgrp "${LIBVIRT_ACCESS_GROUP}" "${OUTPUT_DIR}"
+fi
+chmod 2770 "${OUTPUT_DIR}"
+
 if [[ "${NETWORK_MODE}" == "static" ]]; then
   render_static_network_config
   chmod 0644 "${NETWORK_CONFIG}"
 fi
 
 cloud-localds --network-config="${NETWORK_CONFIG}" "${ISO_PATH}" "${USER_DATA}" "${META_DATA}"
-chmod 0600 "${ISO_PATH}"
+if getent group "${LIBVIRT_ACCESS_GROUP}" >/dev/null 2>&1; then
+  chgrp "${LIBVIRT_ACCESS_GROUP}" "${ISO_PATH}"
+fi
+chmod 0640 "${ISO_PATH}"
 
 if [[ "${VERBOSE}" == true ]]; then
   printf '{"sessionId":"%s","vmRole":"%s","outputDir":"%s","isoPath":"%s","created":true}\n' \

@@ -2,6 +2,12 @@ runtime_user: cka-runtime
 runtime_group: cka-runtime
 runtime_home: /home/cka-runtime
 runtime_root: /var/lib/cka
+runtime_libvirt_access_group: kvm
+runtime_libvirt_network: default
+runtime_vm_network_bridge: virbr0
+runtime_vm_network_cidr: 192.168.122.0/24
+runtime_vm_forward_allowed_sources:
+  - 192.168.0.10/32
 
 runtime_allowed_ssh_public_keys: []
 
@@ -29,8 +35,15 @@ runtime_libvirt_packages:
   - libguestfs-tools
   - libvirt-clients
   - libvirt-daemon-system
+  - dmidecode
+  - dnsmasq-base
+  - mdevctl
+  - parted
   - qemu-kvm
   - virtinst
+
+runtime_inotify_max_user_instances: 1024
+runtime_inotify_max_user_watches: 1048576
 
 runtime_kind_version: v0.23.0
 runtime_kind_arch: amd64
@@ -42,6 +55,7 @@ runtime_directories:
   - "{{ runtime_root }}/images"
   - "{{ runtime_root }}/images/base"
   - "{{ runtime_root }}/images/source"
+  - "{{ runtime_root }}/images/sessions"
   - "{{ runtime_root }}/sessions"
   - "{{ runtime_root }}/logs"
   - "{{ runtime_root }}/tmp"

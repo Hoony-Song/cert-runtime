@@ -39,6 +39,16 @@ variable "ssh_username" {
   default     = "ubuntu"
 }
 
+variable "ssh_private_key_file" {
+  type        = string
+  description = "빌드 중 Packer communicator가 사용할 임시 private key 파일 경로이다. Git에 저장하지 않는다."
+}
+
+variable "ssh_public_key_file" {
+  type        = string
+  description = "빌드 중 cloud-init으로 주입할 임시 public key 파일 경로이다. Git에 저장하지 않는다."
+}
+
 variable "kubernetes_version" {
   type        = string
   description = "Golden Image에 설치할 Kubernetes 패키지 버전이다."
@@ -68,21 +78,48 @@ locals {
 }
 
 source "qemu" "ubuntu_22_04_kubeadm" {
-  accelerator      = "kvm"
-  boot_wait        = "5s"
-  cpus             = 2
-  disk_compression = true
-  disk_image       = true
-  format           = "qcow2"
-  headless         = true
-  iso_checksum     = var.source_image_checksum
-  iso_url          = var.source_image_path
-  memory           = 4096
-  output_directory = local.output_directory
-  shutdown_command = "sudo shutdown -P now"
-  ssh_timeout      = "20m"
-  ssh_username     = var.ssh_username
-  vm_name          = "${var.image_name}.qcow2"
+  accelerator          = "kvm"
+  boot_wait            = "5s"
+  cpus                 = 2
+  disk_compression     = true
+  disk_image           = true
+  format               = "qcow2"
+  headless             = true
+  iso_checksum         = var.source_image_checksum
+  iso_url              = var.source_image_path
+  memory               = 4096
+  output_directory     = local.output_directory
+  shutdown_command     = "sudo shutdown -P now"
+  ssh_private_key_file = var.ssh_private_key_file
+  ssh_timeout          = "20m"
+  ssh_username         = var.ssh_username
+  vm_name              = "${var.image_name}.qcow2"
+
+  cd_label = "cidata"
+  cd_content = {
+    "meta-data" = <<-EOF
+      instance-id: packer-${var.image_name}
+      local-hostname: packer-${var.image_name}
+    EOF
+    "user-data" = <<-EOF
+      #cloud-config
+      ssh_pwauth: false
+      users:
+        - default
+        - name: ${var.ssh_username}
+          groups:
+            - adm
+            - sudo
+          shell: /bin/bash
+          sudo:
+            - ALL=(ALL) NOPASSWD:ALL
+          lock_passwd: true
+          ssh_authorized_keys:
+            - ${trimspace(file(var.ssh_public_key_file))}
+      runcmd:
+        - [ systemctl, reload, ssh ]
+    EOF
+  }
 
   qemuargs = [
     ["-serial", "stdio"],
