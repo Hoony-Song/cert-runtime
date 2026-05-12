@@ -1,0 +1,102 @@
+---
+- name: 지원 운영체제 계열 확인
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == "Debian"
+    fail_msg: "세션 VM bootstrap은 Ubuntu/Debian 기반 Golden Image를 대상으로 합니다."
+
+- name: VM hostname 확인
+  ansible.builtin.command:
+    cmd: hostname
+  register: vm_hostname
+  changed_when: false
+
+- name: VM hostname 검증
+  ansible.builtin.assert:
+    that:
+      - vm_hostname.stdout | length > 0
+    fail_msg: "VM hostname을 확인하지 못했습니다."
+
+- name: Swap 비활성화
+  ansible.builtin.command:
+    cmd: swapoff -a
+  changed_when: false
+  when: ansible_swaptotal_mb | int > 0
+
+- name: Fstab swap 항목 비활성화
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#]\S+\s+\S+\s+swap\s+.*)$'
+    replace: '# \1'
+    backup: false
+
+- name: Kubeadm 필수 커널 모듈 로드
+  ansible.builtin.command:
+    cmd: modprobe {{ item }}
+  changed_when: false
+  loop:
+    - overlay
+    - br_netfilter
+
+- name: Kubeadm 필수 커널 모듈 영구 로드 설정
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/cka-kubeadm.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      overlay
+      br_netfilter
+
+- name: Kubeadm sysctl 값 설정
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+  loop:
+    - name: net.bridge.bridge-nf-call-iptables
+      value: "1"
+    - name: net.bridge.bridge-nf-call-ip6tables
+      value: "1"
+    - name: net.ipv4.ip_forward
+      value: "1"
+
+- name: Containerd 설정 디렉토리 생성
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Containerd systemd cgroup 설정 배치
+  ansible.builtin.template:
+    src: containerd-config.toml.j2
+    dest: /etc/containerd/config.toml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Containerd 재시작
+
+- name: Containerd 서비스 활성화
+  ansible.builtin.systemd:
+    name: containerd
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Kubelet 서비스 활성화
+  ansible.builtin.systemd:
+    name: kubelet
+    enabled: true
+    daemon_reload: true
+
+- name: Bootstrap 결과 출력
+  ansible.builtin.debug:
+    msg: >-
+      session_id={{ session_id | default('unknown') }}
+      inventory_hostname={{ inventory_hostname }}
+      hostname={{ vm_hostname.stdout }}
+      vm_role={{ vm_role | default('unknown') }}
+      kubeadm 사전 Bootstrap 완료

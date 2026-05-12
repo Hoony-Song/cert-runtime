@@ -11,7 +11,10 @@ Desktop1/Desktop2 Runtime Node를 준비하는 Ansible 구성이다.
 - `group_vars/runtime_nodes.yml`: runtime 계정, 설치 패키지, 경로 변수
 - `playbooks/runtime-node-setup.yml`: Runtime Node 기본 구성 playbook
 - `playbooks/check-runtime-node.yml`: Runtime Node SSH 연결, 필수 binary, `/var/lib/cka` 쓰기 검증 playbook
+- `playbooks/wait-vm-ssh.yml`: 세션 VM SSH 연결 대기 playbook
+- `playbooks/bootstrap-vm.yml`: SSH 연결 확인 후 세션 VM kubeadm 사전 Bootstrap playbook
 - `roles/runtime_node`: Docker, kind, libvirt/qemu, cloud-init, runtime 계정 구성 role
+- `roles/session_vm_bootstrap`: 세션 VM swap, kernel module, sysctl, containerd, kubelet 기본 구성 role
 
 ## 보안 정책
 
@@ -43,3 +46,13 @@ Desktop1/Desktop2를 모두 검증할 때:
 ```bash
 ansible-playbook -i ansible/inventory/dev.ini ansible/playbooks/check-runtime-node.yml --check
 ```
+
+## 세션 VM Bootstrap
+
+세션 VM은 kubeadm 실행 전에 SSH 연결 확인을 반드시 통과해야 한다.
+
+```bash
+ansible-playbook -i ansible/inventory/session-example.ini ansible/playbooks/bootstrap-vm.yml
+```
+
+`session-example.ini`는 예시이며 실제 세션에서는 VM IP와 세션 VM private key 경로를 런타임이 생성한 값으로 대체한다.

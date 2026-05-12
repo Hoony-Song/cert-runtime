@@ -1,0 +1,14 @@
+---
+- name: 세션 VM SSH 연결 대기
+  ansible.builtin.import_playbook: wait-vm-ssh.yml
+
+- name: 세션 VM kubeadm 사전 Bootstrap
+  hosts: session_vms
+  become: true
+  gather_facts: true
+
+  vars:
+    expected_vm_hostname: "{{ inventory_hostname }}"
+
+  roles:
+    - role: session_vm_bootstrap
