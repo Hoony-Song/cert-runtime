@@ -1,0 +1,47 @@
+runtime_user: cka-runtime
+runtime_group: cka-runtime
+runtime_home: /home/cka-runtime
+runtime_root: /var/lib/cka
+
+runtime_allowed_ssh_public_keys: []
+
+runtime_base_packages:
+  - ca-certificates
+  - cloud-init
+  - cloud-image-utils
+  - conntrack
+  - curl
+  - genisoimage
+  - jq
+  - qemu-utils
+  - rsync
+  - tar
+  - unzip
+  - vim
+
+runtime_docker_packages:
+  - docker.io
+
+runtime_libvirt_packages:
+  - bridge-utils
+  - cloud-init
+  - genisoimage
+  - libguestfs-tools
+  - libvirt-clients
+  - libvirt-daemon-system
+  - qemu-kvm
+  - virtinst
+
+runtime_kind_version: v0.23.0
+runtime_kind_arch: amd64
+runtime_kind_url: "https://kind.sigs.k8s.io/dl/{{ runtime_kind_version }}/kind-linux-{{ runtime_kind_arch }}"
+runtime_kind_checksum: ""
+
+runtime_directories:
+  - "{{ runtime_root }}"
+  - "{{ runtime_root }}/images"
+  - "{{ runtime_root }}/images/base"
+  - "{{ runtime_root }}/images/source"
+  - "{{ runtime_root }}/sessions"
+  - "{{ runtime_root }}/logs"
+  - "{{ runtime_root }}/tmp"

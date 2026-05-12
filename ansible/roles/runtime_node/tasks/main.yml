@@ -1,0 +1,112 @@
+---
+- name: Runtime group 생성
+  ansible.builtin.group:
+    name: "{{ runtime_group }}"
+    system: true
+    state: present
+
+- name: Runtime user 생성
+  ansible.builtin.user:
+    name: "{{ runtime_user }}"
+    group: "{{ runtime_group }}"
+    groups:
+      - docker
+      - libvirt
+    append: true
+    home: "{{ runtime_home }}"
+    shell: /bin/bash
+    system: true
+    create_home: true
+    state: present
+
+- name: Runtime user SSH 디렉토리 생성
+  ansible.builtin.file:
+    path: "{{ runtime_home }}/.ssh"
+    state: directory
+    owner: "{{ runtime_user }}"
+    group: "{{ runtime_group }}"
+    mode: "0700"
+
+- name: MiniPC runtime control public key 등록
+  ansible.posix.authorized_key:
+    user: "{{ runtime_user }}"
+    key: "{{ item }}"
+    state: present
+    manage_dir: false
+  loop: "{{ runtime_allowed_ssh_public_keys }}"
+  no_log: true
+
+- name: Runtime 기본 패키지 설치
+  ansible.builtin.apt:
+    name: "{{ runtime_base_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Docker 패키지 설치
+  ansible.builtin.apt:
+    name: "{{ runtime_docker_packages }}"
+    state: present
+  notify: Restart docker
+
+- name: Docker 서비스 활성화
+  ansible.builtin.service:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Libvirt/qemu 패키지 설치
+  ansible.builtin.apt:
+    name: "{{ runtime_libvirt_packages }}"
+    state: present
+  notify: Restart libvirtd
+
+- name: Libvirtd 서비스 활성화
+  ansible.builtin.service:
+    name: libvirtd
+    enabled: true
+    state: started
+
+- name: Runtime user를 libvirt 관련 그룹에 추가
+  ansible.builtin.user:
+    name: "{{ runtime_user }}"
+    groups:
+      - docker
+      - libvirt
+      - kvm
+    append: true
+
+- name: /var/lib/cka 디렉토리 구조 생성
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ runtime_user }}"
+    group: "{{ runtime_group }}"
+    mode: "0750"
+  loop: "{{ runtime_directories }}"
+
+- name: Kind 바이너리 설치
+  ansible.builtin.get_url:
+    url: "{{ runtime_kind_url }}"
+    dest: /usr/local/bin/kind
+    mode: "0755"
+    checksum: "{{ runtime_kind_checksum | default(omit, true) }}"
+
+- name: Cloud-init 서비스 활성화
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - cloud-init
+    - cloud-config
+    - cloud-final
+
+- name: Runtime sudoers 정책 배치
+  ansible.builtin.template:
+    src: cka-runtime-sudoers.j2
+    dest: /etc/sudoers.d/cka-runtime
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s

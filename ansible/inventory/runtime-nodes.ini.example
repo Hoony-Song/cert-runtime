@@ -1,0 +1,7 @@
+[runtime_nodes]
+desktop1 ansible_host=192.168.0.31 runtime_node_name=desktop1
+desktop2 ansible_host=192.168.0.110 runtime_node_name=desktop2
+
+[runtime_nodes:vars]
+ansible_user=cka-runtime
+ansible_ssh_private_key_file=/etc/cka/ssh/runtime-control

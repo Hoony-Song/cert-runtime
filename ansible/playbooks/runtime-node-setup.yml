@@ -1,0 +1,8 @@
+---
+- name: Runtime Node 기본 구성
+  hosts: runtime_nodes
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: runtime_node
