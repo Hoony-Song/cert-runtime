@@ -14,3 +14,11 @@ images:
     validation:
       requiredAfterVmCreate:
         - ansible-ssh-connectivity
+        - kubeadm-init
+        - cni-install
+        - worker-join
+        - node-ready
+    bootstrap:
+      installsCniInGoldenImage: false
+      cniInstallPhase: after-kubeadm-init
+      nodeReadyRequiresCni: true

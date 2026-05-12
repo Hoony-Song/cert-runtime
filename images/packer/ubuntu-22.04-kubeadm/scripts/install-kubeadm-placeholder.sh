@@ -56,6 +56,9 @@ sudo apt-get install -y \
 sudo apt-mark hold kubelet kubeadm kubectl
 sudo systemctl enable kubelet
 
+# CNI는 Golden Image 안에서 적용하지 않는다.
+# kubeadm init 이후 클러스터 bootstrap 단계에서 CNI manifest를 적용해야 Node Ready가 된다.
+
 # Golden Image에는 고정 SSH public key를 넣지 않는다.
 # 세션별 VM 접속 key는 cloud-init user-data 렌더링 단계에서 주입한다.
 sudo rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub
