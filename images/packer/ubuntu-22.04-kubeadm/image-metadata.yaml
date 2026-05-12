@@ -1,0 +1,16 @@
+images:
+  - name: cka-ubuntu-22.04-kubeadm-1.30-v1
+    os: ubuntu-22.04
+    kubernetes: v1.30.8
+    runtime: containerd
+    format: qcow2
+    builder: packer
+    template: images/packer/ubuntu-22.04-kubeadm/ubuntu-22.04-kubeadm.pkr.hcl
+    sourceImageChecksum: replace-before-build
+    path: /var/lib/cka/images/base/cka-ubuntu-22.04-kubeadm-1.30-v1/cka-ubuntu-22.04-kubeadm-1.30-v1.qcow2
+    ssh:
+      fixedPublicKeyInImage: false
+      sessionPublicKeyInjection: cloud-init
+    validation:
+      requiredAfterVmCreate:
+        - ansible-ssh-connectivity
