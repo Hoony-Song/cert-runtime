@@ -1,0 +1,43 @@
+---
+- name: 세션 VM SSH 연결 대기
+  hosts: session_vms
+  gather_facts: false
+
+  vars:
+    vm_ssh_wait_timeout: 300
+    vm_ssh_wait_connect_timeout: 10
+    vm_ssh_wait_sleep: 5
+
+  pre_tasks:
+    - name: 세션 VM inventory 입력 검증
+      ansible.builtin.assert:
+        that:
+          - ansible_host is defined
+          - ansible_host | length > 0
+          - ansible_user is defined
+          - ansible_user | length > 0
+          - ansible_ssh_private_key_file is defined
+          - ansible_ssh_private_key_file | length > 0
+          - session_id is defined
+          - session_id | length > 0
+        fail_msg: >-
+          세션 VM SSH 대기에는 ansible_host, ansible_user,
+          ansible_ssh_private_key_file, session_id가 필요합니다.
+
+  tasks:
+    - name: VM SSH 연결 가능할 때까지 대기
+      ansible.builtin.wait_for_connection:
+        timeout: "{{ vm_ssh_wait_timeout }}"
+        connect_timeout: "{{ vm_ssh_wait_connect_timeout }}"
+        sleep: "{{ vm_ssh_wait_sleep }}"
+      register: vm_ssh_wait_result
+
+    - name: VM SSH ping 확인
+      ansible.builtin.ping:
+
+    - name: VM SSH 연결 결과 출력
+      ansible.builtin.debug:
+        msg: >-
+          session_id={{ session_id }} inventory_hostname={{ inventory_hostname }}
+          ansible_host={{ ansible_host }} vm_role={{ vm_role | default('unknown') }}
+          SSH 연결 확인 완료
