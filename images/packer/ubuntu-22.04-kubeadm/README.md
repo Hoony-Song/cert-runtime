@@ -9,7 +9,12 @@ Golden Image는 kubeadm 클러스터를 미리 구성하지 않는다.
 ## 포함 파일
 
 - `ubuntu-22.04-kubeadm.pkr.hcl`: QEMU 기반 Packer template
-- `scripts/install-kubeadm-placeholder.sh`: kubeadm/containerd 설치 placeholder
+- `scripts/00-install-base-packages.sh`: cloud-init과 기본 패키지 설치
+- `scripts/10-install-containerd.sh`: containerd와 커널 설정 적용
+- `scripts/20-install-kubernetes-tools.sh`: kubeadm/kubelet/kubectl 설치
+- `scripts/30-install-exam-tools.sh`: crictl, jq, yq, vim 검증
+- `scripts/90-clean-golden-image.sh`: machine-id, SSH host key, apt cache 정리
+- `scripts/99-validate-cloud-init.sh`: cloud-init 활성화와 고정 SSH key 부재 검증
 - `image-metadata.yaml`: 운영에서 참조할 image metadata
 
 ## 보안 정책

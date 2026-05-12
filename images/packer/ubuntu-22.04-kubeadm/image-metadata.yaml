@@ -7,6 +7,18 @@ images:
     builder: packer
     template: images/packer/ubuntu-22.04-kubeadm/ubuntu-22.04-kubeadm.pkr.hcl
     sourceImageChecksum: replace-before-build
+    packages:
+      containerRuntime: containerd
+      kubernetesPackages:
+        - kubeadm
+        - kubelet
+        - kubectl
+      examTools:
+        - crictl
+        - jq
+        - yq
+        - vim
+      cloudInitRequired: true
     path: /var/lib/cka/images/base/cka-ubuntu-22.04-kubeadm-1.30-v1/cka-ubuntu-22.04-kubeadm-1.30-v1.qcow2
     ssh:
       fixedPublicKeyInImage: false

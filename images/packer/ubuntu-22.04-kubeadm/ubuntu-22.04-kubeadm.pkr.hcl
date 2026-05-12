@@ -51,6 +51,18 @@ variable "kubernetes_minor" {
   default     = "v1.30"
 }
 
+variable "crictl_version" {
+  type        = string
+  description = "Golden Image에 설치할 crictl 버전이다."
+  default     = "v1.30.1"
+}
+
+variable "yq_version" {
+  type        = string
+  description = "Golden Image에 설치할 yq 버전이다."
+  default     = "v4.44.6"
+}
+
 locals {
   output_directory = "${var.output_root}/${var.image_name}"
 }
@@ -85,8 +97,17 @@ build {
   provisioner "shell" {
     environment_vars = [
       "KUBERNETES_VERSION=${var.kubernetes_version}",
-      "KUBERNETES_MINOR=${var.kubernetes_minor}"
+      "KUBERNETES_MINOR=${var.kubernetes_minor}",
+      "CRICTL_VERSION=${var.crictl_version}",
+      "YQ_VERSION=${var.yq_version}"
     ]
-    script = "images/packer/ubuntu-22.04-kubeadm/scripts/install-kubeadm-placeholder.sh"
+    scripts = [
+      "images/packer/ubuntu-22.04-kubeadm/scripts/00-install-base-packages.sh",
+      "images/packer/ubuntu-22.04-kubeadm/scripts/10-install-containerd.sh",
+      "images/packer/ubuntu-22.04-kubeadm/scripts/20-install-kubernetes-tools.sh",
+      "images/packer/ubuntu-22.04-kubeadm/scripts/30-install-exam-tools.sh",
+      "images/packer/ubuntu-22.04-kubeadm/scripts/90-clean-golden-image.sh",
+      "images/packer/ubuntu-22.04-kubeadm/scripts/99-validate-cloud-init.sh"
+    ]
   }
 }
