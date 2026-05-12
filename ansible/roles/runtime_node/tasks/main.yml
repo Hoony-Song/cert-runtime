@@ -9,10 +9,6 @@
   ansible.builtin.user:
     name: "{{ runtime_user }}"
     group: "{{ runtime_group }}"
-    groups:
-      - docker
-      - libvirt
-    append: true
     home: "{{ runtime_home }}"
     shell: /bin/bash
     system: true
@@ -43,11 +39,20 @@
     update_cache: true
     cache_valid_time: 3600
 
+- name: Docker 바이너리 존재 확인
+  ansible.builtin.command:
+    cmd: which docker
+  register: runtime_docker_binary
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
 - name: Docker 패키지 설치
   ansible.builtin.apt:
     name: "{{ runtime_docker_packages }}"
     state: present
   notify: Restart docker
+  when: runtime_docker_binary.rc != 0
 
 - name: Docker 서비스 활성화
   ansible.builtin.service:
@@ -96,7 +101,6 @@
   ansible.builtin.service:
     name: "{{ item }}"
     enabled: true
-    state: started
   loop:
     - cloud-init
     - cloud-config

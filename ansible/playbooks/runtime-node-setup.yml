@@ -3,6 +3,8 @@
   hosts: runtime_nodes
   become: true
   gather_facts: true
+  vars_files:
+    - ../group_vars/runtime_nodes.yml
 
   roles:
     - role: runtime_node

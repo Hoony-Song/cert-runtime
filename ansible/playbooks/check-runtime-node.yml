@@ -1,0 +1,47 @@
+---
+- name: Runtime Node 연결과 필수 도구 검증
+  hosts: runtime_nodes
+  become: true
+  gather_facts: false
+
+  vars:
+    runtime_required_binaries:
+      - docker
+      - kind
+      - virsh
+      - qemu-img
+      - cloud-localds
+    runtime_check_root: /var/lib/cka
+
+  tasks:
+    - name: Runtime Node Ansible ping 확인
+      ansible.builtin.ping:
+
+    - name: 필수 바이너리 존재 확인
+      ansible.builtin.command:
+        cmd: "which {{ item }}"
+      loop: "{{ runtime_required_binaries }}"
+      changed_when: false
+      check_mode: false
+
+    - name: Runtime root 디렉토리 상태 확인
+      ansible.builtin.stat:
+        path: "{{ runtime_check_root }}"
+      register: runtime_root_stat
+      check_mode: false
+
+    - name: Runtime root 디렉토리 존재 검증
+      ansible.builtin.assert:
+        that:
+          - runtime_root_stat.stat.exists
+          - runtime_root_stat.stat.isdir
+        fail_msg: "{{ runtime_check_root }} 디렉토리가 없습니다."
+
+    - name: Runtime root 쓰기 가능 여부 확인
+      ansible.builtin.command:
+        cmd: >-
+          /bin/sh -c 'test -w "{{ runtime_check_root }}" &&
+          touch "{{ runtime_check_root }}/.ansible-connectivity-check" &&
+          rm -f "{{ runtime_check_root }}/.ansible-connectivity-check"'
+      changed_when: false
+      check_mode: false
