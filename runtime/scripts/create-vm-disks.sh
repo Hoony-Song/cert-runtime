@@ -5,7 +5,8 @@ show_help() {
   cat <<'USAGE'
 Usage: create-vm-disks.sh --session-id <id> [--exam-type <type>] [--exam-set-id <id>] [--base-image <path>] [--session-disk-dir <dir>] [--dry-run] [--verbose]
 
-세션별 kubeadm VM 디스크를 qcow2 backing file 방식으로 생성한다.
+세션별 VM 디스크를 qcow2 backing file 방식으로 생성한다.
+전역 디스크 이름은 <session_id>-cka0001, <session_id>-cka0002, <session_id>-cka0003 형식을 사용한다.
 USAGE
 }
 
@@ -68,18 +69,19 @@ require_safe_session_id "${SESSION_ID}"
 require_absolute_path "--base-image" "${BASE_IMAGE}"
 require_absolute_path "--session-disk-dir" "${SESSION_DISK_DIR}"
 
-CP_DISK="${SESSION_DISK_DIR}/${SESSION_ID}-cp.qcow2"
-WORKER_DISK="${SESSION_DISK_DIR}/${SESSION_ID}-worker.qcow2"
+CP_DISK="${SESSION_DISK_DIR}/${SESSION_ID}-cka0001.qcow2"
+KIND_DISK="${SESSION_DISK_DIR}/${SESSION_ID}-cka0002.qcow2"
+WORKER_DISK="${SESSION_DISK_DIR}/${SESSION_ID}-cka0003.qcow2"
 MANIFEST="${SESSION_DISK_DIR}/${SESSION_ID}.disks"
 
-if [[ -e "${CP_DISK}" || -e "${WORKER_DISK}" || -e "${MANIFEST}" ]]; then
+if [[ -e "${CP_DISK}" || -e "${KIND_DISK}" || -e "${WORKER_DISK}" || -e "${MANIFEST}" ]]; then
   echo "이미 같은 session_id의 VM 디스크가 존재합니다: ${SESSION_ID}" >&2
   exit 1
 fi
 
 if [[ "${DRY_RUN}" == true ]]; then
-  printf '{"sessionId":"%s","examType":"%s","examSetId":"%s","baseImage":"%s","sessionDiskDir":"%s","disks":["%s","%s"],"dryRun":true}\n' \
-    "${SESSION_ID}" "${EXAM_TYPE}" "${EXAM_SET_ID}" "${BASE_IMAGE}" "${SESSION_DISK_DIR}" "${CP_DISK}" "${WORKER_DISK}"
+  printf '{"sessionId":"%s","examType":"%s","examSetId":"%s","baseImage":"%s","sessionDiskDir":"%s","disks":["%s","%s","%s"],"dryRun":true}\n' \
+    "${SESSION_ID}" "${EXAM_TYPE}" "${EXAM_SET_ID}" "${BASE_IMAGE}" "${SESSION_DISK_DIR}" "${CP_DISK}" "${KIND_DISK}" "${WORKER_DISK}"
   exit 0
 fi
 
@@ -122,6 +124,7 @@ create_overlay_disk() {
 }
 
 create_overlay_disk "${CP_DISK}"
+create_overlay_disk "${KIND_DISK}"
 create_overlay_disk "${WORKER_DISK}"
 
 {
@@ -129,8 +132,9 @@ create_overlay_disk "${WORKER_DISK}"
   printf 'exam_type=%s\n' "${EXAM_TYPE}"
   printf 'exam_set_id=%s\n' "${EXAM_SET_ID}"
   printf 'base_image=%s\n' "${BASE_IMAGE}"
-  printf 'control_plane_disk=%s\n' "${CP_DISK}"
-  printf 'worker_disk=%s\n' "${WORKER_DISK}"
+  printf 'cka0001_disk=%s\n' "${CP_DISK}"
+  printf 'cka0002_disk=%s\n' "${KIND_DISK}"
+  printf 'cka0003_disk=%s\n' "${WORKER_DISK}"
 } > "${MANIFEST}"
 if getent group "${LIBVIRT_ACCESS_GROUP}" >/dev/null 2>&1; then
   chgrp "${LIBVIRT_ACCESS_GROUP}" "${MANIFEST}"
@@ -140,6 +144,6 @@ chmod 0660 "${MANIFEST}"
 trap - ERR
 
 if [[ "${VERBOSE}" == true ]]; then
-  printf '{"sessionId":"%s","baseImage":"%s","controlPlaneDisk":"%s","workerDisk":"%s","created":true}\n' \
-    "${SESSION_ID}" "${BASE_IMAGE}" "${CP_DISK}" "${WORKER_DISK}"
+  printf '{"sessionId":"%s","baseImage":"%s","disks":["%s","%s","%s"],"created":true}\n' \
+    "${SESSION_ID}" "${BASE_IMAGE}" "${CP_DISK}" "${KIND_DISK}" "${WORKER_DISK}"
 fi

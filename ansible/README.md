@@ -1,6 +1,6 @@
 # Runtime Node Ansible
 
-Desktop1/Desktop2 Runtime Node를 준비하는 Ansible 구성이다.
+`runtime` Runtime Node를 준비하는 Ansible 구성이다.
 
 ## 파일 구성
 
@@ -35,13 +35,13 @@ ansible-playbook -i ansible/inventory/runtime-nodes.ini ansible/playbooks/runtim
 
 ## 연결 검증
 
-Desktop1만 검증할 때:
+runtime 호스트만 검증할 때:
 
 ```bash
-ansible-playbook -i ansible/inventory/dev.ini ansible/playbooks/check-runtime-node.yml --check --limit desktop1
+ansible-playbook -i ansible/inventory/dev.ini ansible/playbooks/check-runtime-node.yml --check --limit runtime
 ```
 
-Desktop1/Desktop2를 모두 검증할 때:
+여러 runtime 후보를 검증해야 할 때:
 
 ```bash
 ansible-playbook -i ansible/inventory/dev.ini ansible/playbooks/check-runtime-node.yml --check

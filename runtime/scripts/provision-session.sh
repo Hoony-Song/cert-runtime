@@ -8,6 +8,7 @@ show_help() {
 세션별 Runtime 환경을 생성한다.
 
 이 스크립트는 Runtime Node에서 실행하는 것을 기본 전제로 한다.
+전역 자원 이름은 <session_id>-cka0001, <session_id>-cka0002, <session_id>-cka0003 형식을 사용한다.
 USAGE
 }
 
@@ -117,21 +118,24 @@ run_step() {
 }
 
 discover_vm_ip() {
-  local hostname="$1"
+  local node_name="$1"
+  local domain_name="${SESSION_ID}-${node_name}"
   local deadline
-  local lease
+  local ip
 
+  # Use virsh domifaddr which queries the VM directly by domain name,
+  # avoiding stale DHCP lease matches from prior sessions with the same hostname.
   deadline=$((SECONDS + 180))
   while (( SECONDS < deadline )); do
-    lease="$(virsh net-dhcp-leases default 2>/dev/null | awk -v host="${hostname}" '$0 ~ host { print $5; exit }' | cut -d/ -f1)"
-    if [[ -n "${lease}" ]]; then
-      printf '%s\n' "${lease}"
+    ip="$(virsh domifaddr "${domain_name}" 2>/dev/null | awk '/ipv4/ { print $4; exit }' | cut -d/ -f1)"
+    if [[ -n "${ip}" ]]; then
+      printf '%s\n' "${ip}"
       return 0
     fi
     sleep 3
   done
 
-  echo "VM DHCP lease를 찾지 못했습니다: ${hostname}" >&2
+  echo "VM IP를 찾지 못했습니다: ${domain_name}" >&2
   return 1
 }
 
@@ -150,6 +154,8 @@ require_safe_session_id "${SESSION_ID}"
 require_absolute_path "--session-root" "${SESSION_ROOT}"
 require_absolute_path "--session-disk-dir" "${SESSION_DISK_DIR}"
 
+ADMIN_SSH_PUBLIC_KEY_FILE="${CKA_ADMIN_SSH_PUBLIC_KEY_FILE:-/home/cka-runtime/.ssh/cert-ssh.pub}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 SESSION_DIR="${SESSION_ROOT}/${SESSION_ID}"
@@ -159,12 +165,20 @@ KUBECONFIG_DIR="${SESSION_DIR}/kubeconfig"
 STATE_FILE="${SESSION_DIR}/state.json"
 INVENTORY_FILE="${SESSION_DIR}/inventory.ini"
 CURRENT_STEP="init"
+CP_NODE_NAME="cka0001"
+KIND_NODE_NAME="cka0002"
+WORKER_NODE_NAME="cka0003"
 
 if [[ "${DRY_RUN}" == true ]]; then
-  printf '{"sessionId":"%s","examType":"%s","examSetId":"%s","sessionRoot":"%s","baseImage":"%s","steps":["session-directory","ssh-key","vm-disks","cloud-init","vm-cluster","dhcp-discovery","kubeadm-bootstrap","kind","kubeconfig-injection","question-setup","bastion"],"dryRun":true}\n' \
-    "${SESSION_ID}" "${EXAM_TYPE}" "${EXAM_SET_ID}" "${SESSION_ROOT}" "${BASE_IMAGE}"
+  printf '{"sessionId":"%s","examType":"%s","examSetId":"%s","sessionRoot":"%s","baseImage":"%s","vms":[{"name":"%s","domain":"%s-%s","role":"kubeadm-cp"},{"name":"%s","domain":"%s-%s","role":"kind"},{"name":"%s","domain":"%s-%s","role":"kubeadm-worker"}],"contexts":["cka-vm","cka-kind"],"steps":["session-directory","ssh-key","vm-disks","cloud-init","vm-cluster","dhcp-discovery","kubeadm-bootstrap","kind-host-bootstrap","kind","kubeconfig-injection","terminal-files","question-setup","bastion"],"dryRun":true}\n' \
+    "${SESSION_ID}" "${EXAM_TYPE}" "${EXAM_SET_ID}" "${SESSION_ROOT}" "${BASE_IMAGE}" \
+    "${CP_NODE_NAME}" "${SESSION_ID}" "${CP_NODE_NAME}" \
+    "${KIND_NODE_NAME}" "${SESSION_ID}" "${KIND_NODE_NAME}" \
+    "${WORKER_NODE_NAME}" "${SESSION_ID}" "${WORKER_NODE_NAME}"
   exit 0
 fi
+
+export LIBVIRT_DEFAULT_URI="${LIBVIRT_DEFAULT_URI:-qemu:///system}"
 
 require_command python3
 require_command ssh-keygen
@@ -172,6 +186,8 @@ require_command virsh
 require_command docker
 require_command ansible-playbook
 require_command kubectl
+require_command scp
+require_command ssh
 
 if [[ -e "${SESSION_DIR}" ]]; then
   echo "이미 같은 session_id의 session directory가 존재합니다: ${SESSION_DIR}" >&2
@@ -180,6 +196,9 @@ fi
 
 mkdir -p "${SSH_DIR}" "${LOG_DIR}" "${KUBECONFIG_DIR}" "${SESSION_DIR}/artifacts" "${SESSION_DIR}/problems" "${SESSION_DIR}/work"
 chmod 0700 "${SESSION_DIR}" "${SSH_DIR}" "${KUBECONFIG_DIR}" "${LOG_DIR}"
+# chmod 0700 on SESSION_DIR resets the ACL mask to ---, blocking the inherited libvirt-qemu:r-x entry.
+# Restore traverse access so QEMU can open cloud-init ISOs and disk images inside this directory.
+setfacl -m u:libvirt-qemu:rx "${SESSION_DIR}"
 write_state "PROVISIONING" "init"
 
 handle_failure() {
@@ -195,6 +214,10 @@ handle_failure() {
 trap handle_failure ERR
 
 run_step "ssh-key" ssh-keygen -t ed25519 -N "" -f "${SSH_DIR}/session_vm" -C "${SESSION_ID}@cka-session"
+# The sessions/ directory has a default ACL with group::r-x which propagates to new files,
+# making the private key appear as 0640. SSH rejects keys that are group/other readable.
+setfacl -b "${SSH_DIR}/session_vm"
+chmod 0600 "${SSH_DIR}/session_vm"
 
 run_step "vm-disks" "${SCRIPT_DIR}/create-vm-disks.sh" \
   --session-id "${SESSION_ID}" \
@@ -204,20 +227,39 @@ run_step "vm-disks" "${SCRIPT_DIR}/create-vm-disks.sh" \
   --session-disk-dir "${SESSION_DISK_DIR}" \
   --verbose
 
+ADMIN_KEY_ARG=()
+if [[ -f "${ADMIN_SSH_PUBLIC_KEY_FILE}" ]]; then
+  ADMIN_KEY_ARG=(--admin-ssh-public-key-file "${ADMIN_SSH_PUBLIC_KEY_FILE}")
+fi
+
 run_step "cloud-init-cp" "${SCRIPT_DIR}/create-cloud-init-iso.sh" \
   --session-id "${SESSION_ID}" \
-  --vm-role cp \
-  --vm-hostname "${SESSION_ID}-cp" \
+  --vm-role "${CP_NODE_NAME}" \
+  --vm-hostname "${CP_NODE_NAME}" \
   --ssh-public-key-file "${SSH_DIR}/session_vm.pub" \
+  --ssh-private-key-file "${SSH_DIR}/session_vm" \
   --exam-type "${EXAM_TYPE}" \
+  "${ADMIN_KEY_ARG[@]}" \
+  --verbose
+
+run_step "cloud-init-kind" "${SCRIPT_DIR}/create-cloud-init-iso.sh" \
+  --session-id "${SESSION_ID}" \
+  --vm-role "${KIND_NODE_NAME}" \
+  --vm-hostname "${KIND_NODE_NAME}" \
+  --ssh-public-key-file "${SSH_DIR}/session_vm.pub" \
+  --ssh-private-key-file "${SSH_DIR}/session_vm" \
+  --exam-type "${EXAM_TYPE}" \
+  "${ADMIN_KEY_ARG[@]}" \
   --verbose
 
 run_step "cloud-init-worker" "${SCRIPT_DIR}/create-cloud-init-iso.sh" \
   --session-id "${SESSION_ID}" \
-  --vm-role worker \
-  --vm-hostname "${SESSION_ID}-worker" \
+  --vm-role "${WORKER_NODE_NAME}" \
+  --vm-hostname "${WORKER_NODE_NAME}" \
   --ssh-public-key-file "${SSH_DIR}/session_vm.pub" \
+  --ssh-private-key-file "${SSH_DIR}/session_vm" \
   --exam-type "${EXAM_TYPE}" \
+  "${ADMIN_KEY_ARG[@]}" \
   --verbose
 
 run_step "vm-cluster" "${SCRIPT_DIR}/create-vm-cluster.sh" \
@@ -227,13 +269,15 @@ run_step "vm-cluster" "${SCRIPT_DIR}/create-vm-cluster.sh" \
   --verbose
 
 CURRENT_STEP="dhcp-discovery"
-CP_IP="$(discover_vm_ip "${SESSION_ID}-cp")"
-WORKER_IP="$(discover_vm_ip "${SESSION_ID}-worker")"
+CP_IP="$(discover_vm_ip "${CP_NODE_NAME}")"
+KIND_IP="$(discover_vm_ip "${KIND_NODE_NAME}")"
+WORKER_IP="$(discover_vm_ip "${WORKER_NODE_NAME}")"
 
 cat >"${INVENTORY_FILE}" <<EOF
 [session_vms]
-cka-${SESSION_ID}-cp ansible_host=${CP_IP} vm_role=control-plane
-cka-${SESSION_ID}-worker ansible_host=${WORKER_IP} vm_role=worker
+${CP_NODE_NAME} ansible_host=${CP_IP} vm_role=control-plane kube_node_name=master
+${KIND_NODE_NAME} ansible_host=${KIND_IP} vm_role=kind
+${WORKER_NODE_NAME} ansible_host=${WORKER_IP} vm_role=worker kube_node_name=worker
 
 [session_vms:vars]
 ansible_user=ubuntu
@@ -248,11 +292,19 @@ run_step "kubeadm-bootstrap" env ANSIBLE_CONFIG="${REPO_ROOT}/ansible/ansible.cf
   -i "${INVENTORY_FILE}" \
   "${REPO_ROOT}/ansible/playbooks/kubeadm-bootstrap.yml"
 
+run_step "kind-host-bootstrap" env ANSIBLE_CONFIG="${REPO_ROOT}/ansible/ansible.cfg" ansible-playbook \
+  -i "${INVENTORY_FILE}" \
+  "${REPO_ROOT}/ansible/playbooks/kind-host-bootstrap.yml"
+
 run_step "kind" "${SCRIPT_DIR}/create-kind.sh" \
   --session-id "${SESSION_ID}" \
   --exam-type "${EXAM_TYPE}" \
   --exam-set-id "${EXAM_SET_ID}" \
-  --api-server-address "${KIND_API_SERVER_ADDRESS}" \
+  --kind-host "${KIND_IP}" \
+  --ssh-user ubuntu \
+  --ssh-key "${SSH_DIR}/session_vm" \
+  --ssh-known-hosts "${SSH_DIR}/known_hosts" \
+  --api-server-address "${KIND_IP:-${KIND_API_SERVER_ADDRESS}}" \
   --verbose
 
 run_step "kubeconfig-injection" "${SCRIPT_DIR}/inject-kubeconfig.sh" \
@@ -260,6 +312,53 @@ run_step "kubeconfig-injection" "${SCRIPT_DIR}/inject-kubeconfig.sh" \
   --exam-type "${EXAM_TYPE}" \
   --exam-set-id "${EXAM_SET_ID}" \
   --verbose
+
+install_terminal_files() {
+  local -a ssh_args
+  local target_ip
+  local context
+  local kubeconfig_copy
+  ssh_args=(-i "${SSH_DIR}/session_vm" -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=${SSH_DIR}/known_hosts")
+
+  for target_ip in "${CP_IP}" "${KIND_IP}" "${WORKER_IP}"; do
+    context="cka-vm"
+    if [[ "${target_ip}" == "${KIND_IP}" ]]; then
+      context="cka-kind"
+    fi
+    kubeconfig_copy="${KUBECONFIG_DIR}/config-${context}"
+    cp "${KUBECONFIG_DIR}/config" "${kubeconfig_copy}"
+    kubectl --kubeconfig "${kubeconfig_copy}" config use-context "${context}" >/dev/null
+
+    ssh "${ssh_args[@]}" "ubuntu@${target_ip}" "mkdir -p /home/ubuntu/.kube /home/ubuntu/problems"
+    scp "${ssh_args[@]}" "${kubeconfig_copy}" "ubuntu@${target_ip}:/home/ubuntu/.kube/config" >/dev/null
+    # shellcheck disable=SC2029
+    ssh "${ssh_args[@]}" "ubuntu@${target_ip}" "cat > /home/ubuntu/.ssh/config <<EOF
+Host cka0001
+  HostName ${CP_IP}
+  User ubuntu
+  IdentityFile ~/.ssh/session_vm
+  StrictHostKeyChecking accept-new
+  UserKnownHostsFile ~/.ssh/known_hosts
+
+Host cka0002
+  HostName ${KIND_IP}
+  User ubuntu
+  IdentityFile ~/.ssh/session_vm
+  StrictHostKeyChecking accept-new
+  UserKnownHostsFile ~/.ssh/known_hosts
+
+Host cka0003
+  HostName ${WORKER_IP}
+  User ubuntu
+  IdentityFile ~/.ssh/session_vm
+  StrictHostKeyChecking accept-new
+  UserKnownHostsFile ~/.ssh/known_hosts
+EOF
+chmod 700 /home/ubuntu/.ssh /home/ubuntu/.kube && chmod 600 /home/ubuntu/.ssh/config /home/ubuntu/.kube/config"
+  done
+}
+
+run_step "terminal-files" install_terminal_files
 
 run_step "question-setup" "${SCRIPT_DIR}/setup-question-env.sh" \
   --session-id "${SESSION_ID}" \
@@ -277,7 +376,13 @@ run_step "bastion" "${SCRIPT_DIR}/create-bastion.sh" \
   --verbose
 
 trap - ERR
-write_state "READY" "complete"
-
-printf '{"sessionId":"%s","examType":"%s","examSetId":"%s","status":"READY","controlPlaneIp":"%s","workerIp":"%s","bastionContainer":"cka-%s-bastion","kubeconfig":"%s"}\n' \
-  "${SESSION_ID}" "${EXAM_TYPE}" "${EXAM_SET_ID}" "${CP_IP}" "${WORKER_IP}" "${SESSION_ID}" "${KUBECONFIG_DIR}/config"
+READY_JSON="$(printf '{"sessionId":"%s","examType":"%s","examSetId":"%s","status":"READY","vms":[{"name":"%s","domain":"%s-%s","ip":"%s","role":"kubeadm-cp"},{"name":"%s","domain":"%s-%s","ip":"%s","role":"kind"},{"name":"%s","domain":"%s-%s","ip":"%s","role":"kubeadm-worker"}],"contexts":["cka-vm","cka-kind"],"adminCommands":["ssh cka-runtime@runtime virsh console %s-%s","ssh cka-runtime@runtime virsh console %s-%s","ssh cka-runtime@runtime virsh console %s-%s"],"kubeconfig":"%s"}' \
+  "${SESSION_ID}" "${EXAM_TYPE}" "${EXAM_SET_ID}" \
+  "${CP_NODE_NAME}" "${SESSION_ID}" "${CP_NODE_NAME}" "${CP_IP}" \
+  "${KIND_NODE_NAME}" "${SESSION_ID}" "${KIND_NODE_NAME}" "${KIND_IP}" \
+  "${WORKER_NODE_NAME}" "${SESSION_ID}" "${WORKER_NODE_NAME}" "${WORKER_IP}" \
+  "${SESSION_ID}" "${CP_NODE_NAME}" "${SESSION_ID}" "${KIND_NODE_NAME}" "${SESSION_ID}" "${WORKER_NODE_NAME}" \
+  "${KUBECONFIG_DIR}/config")"
+printf '%s\n' "${READY_JSON}" >"${STATE_FILE}"
+chmod 0600 "${STATE_FILE}"
+printf '%s\n' "${READY_JSON}"

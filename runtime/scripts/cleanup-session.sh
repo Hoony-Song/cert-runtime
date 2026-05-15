@@ -93,16 +93,19 @@ require_safe_session_id "${SESSION_ID}"
 require_absolute_path "--session-root" "${SESSION_ROOT}"
 require_absolute_path "--session-disk-dir" "${SESSION_DISK_DIR}"
 
+export LIBVIRT_DEFAULT_URI="${LIBVIRT_DEFAULT_URI:-qemu:///system}"
+
 SESSION_DIR="${SESSION_ROOT}/${SESSION_ID}"
-BASTION_CONTAINER="cka-${SESSION_ID}-bastion"
-KIND_CLUSTER="cka-${SESSION_ID}-kind"
-CP_VM="cka-${SESSION_ID}-cp"
-WORKER_VM="cka-${SESSION_ID}-worker"
+BASTION_CONTAINER="${SESSION_ID}-bastion"
+KIND_CLUSTER="cka0002-kind"
+CP_VM="${SESSION_ID}-cka0001"
+KIND_VM="${SESSION_ID}-cka0002"
+WORKER_VM="${SESSION_ID}-cka0003"
 CLEANUP_ACTIONS=()
 
 if [[ "${DRY_RUN}" == true ]]; then
-  printf '{"sessionId":"%s","examType":"%s","examSetId":"%s","resources":{"bastion":"%s","kind":"%s","vms":["%s","%s"],"sessionDir":"%s","sessionDiskDir":"%s"},"dryRun":true}\n' \
-    "${SESSION_ID}" "${EXAM_TYPE}" "${EXAM_SET_ID}" "${BASTION_CONTAINER}" "${KIND_CLUSTER}" "${CP_VM}" "${WORKER_VM}" "${SESSION_DIR}" "${SESSION_DISK_DIR}"
+  printf '{"sessionId":"%s","examType":"%s","examSetId":"%s","resources":{"bastion":"%s","kind":"%s","vms":["%s","%s","%s"],"sessionDir":"%s","sessionDiskDir":"%s"},"dryRun":true}\n' \
+    "${SESSION_ID}" "${EXAM_TYPE}" "${EXAM_SET_ID}" "${BASTION_CONTAINER}" "${KIND_CLUSTER}" "${CP_VM}" "${KIND_VM}" "${WORKER_VM}" "${SESSION_DIR}" "${SESSION_DISK_DIR}"
   exit 0
 fi
 
@@ -122,7 +125,7 @@ else
 fi
 
 if command -v virsh >/dev/null 2>&1; then
-  for vm_name in "${CP_VM}" "${WORKER_VM}"; do
+  for vm_name in "${CP_VM}" "${KIND_VM}" "${WORKER_VM}"; do
     if virsh dominfo "${vm_name}" >/dev/null 2>&1; then
       virsh destroy "${vm_name}" >/dev/null 2>&1 || true
       virsh undefine "${vm_name}" --nvram >/dev/null 2>&1 || virsh undefine "${vm_name}" >/dev/null 2>&1 || true
@@ -134,8 +137,9 @@ if command -v virsh >/dev/null 2>&1; then
 fi
 
 rm -f \
-  "${SESSION_DISK_DIR}/${SESSION_ID}-cp.qcow2" \
-  "${SESSION_DISK_DIR}/${SESSION_ID}-worker.qcow2" \
+  "${SESSION_DISK_DIR}/${SESSION_ID}-cka0001.qcow2" \
+  "${SESSION_DISK_DIR}/${SESSION_ID}-cka0002.qcow2" \
+  "${SESSION_DISK_DIR}/${SESSION_ID}-cka0003.qcow2" \
   "${SESSION_DISK_DIR}/${SESSION_ID}.disks"
 record_action "session-disks" "deleted"
 

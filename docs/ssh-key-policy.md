@@ -16,7 +16,7 @@
 
 | Key | 용도 | private key 위치 | public key 위치 | 주입 방식 |
 |---|---|---|---|---|
-| runtime control key | miniPC가 Desktop1/Desktop2 Runtime Node를 제어 | miniPC 운영 계정의 key store | Runtime Node runtime 계정 `authorized_keys` | 운영자가 수동 등록 |
+| runtime control key | bastion이 runtime Runtime Node를 제어 | bastion 운영 계정의 key store | Runtime Node runtime 계정 `authorized_keys` | 운영자가 수동 등록 |
 | session VM key | Ansible이 세션 VM에 접속 | 세션 디렉토리 또는 운영 secret store | cloud-init `ssh_authorized_keys` | VM 생성 시 렌더링 |
 | user/bastion key | 사용자가 bastion에서 직접 사용하는 key | 사용하지 않음 | 사용하지 않음 | 금지 |
 

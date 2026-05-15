@@ -79,7 +79,7 @@ require_value "--session-id" "${SESSION_ID}"
 require_safe_session_id "${SESSION_ID}"
 require_absolute_path "--session-root" "${SESSION_ROOT}"
 
-CONTAINER_NAME="cka-${SESSION_ID}-bastion"
+CONTAINER_NAME="${SESSION_ID}-bastion"
 SESSION_DIR="${SESSION_ROOT}/${SESSION_ID}"
 BASTION_DIR="${SESSION_DIR}/bastion"
 KUBECONFIG_DIR="${SESSION_DIR}/kubeconfig"
@@ -99,7 +99,10 @@ fi
 
 require_existing_dir "kubeconfig" "${KUBECONFIG_DIR}"
 mkdir -p "${BASTION_DIR}" "${PROBLEMS_DIR}" "${WORK_DIR}"
-chown 1000:1000 "${BASTION_DIR}" "${WORK_DIR}"
+cd "${SESSION_DIR}"
+# cka-runtime (UID 997) cannot chown to UID 1000 (bastion container's cka user) without root.
+# Use setfacl to grant the container user rwx access on the writable directories.
+setfacl -m u:1000:rwx "${BASTION_DIR}" "${WORK_DIR}"
 chmod 0755 "${KUBECONFIG_DIR}" "${PROBLEMS_DIR}"
 find "${KUBECONFIG_DIR}" -maxdepth 1 -type f -name '*.conf' -exec chmod 0644 {} +
 if [[ -f "${KUBECONFIG_DIR}/config" ]]; then
@@ -132,8 +135,8 @@ docker run -d \
 
 BASTION_IP="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "${CONTAINER_NAME}")"
 if [[ -n "${BASTION_IP}" ]] && command -v iptables >/dev/null 2>&1; then
-  iptables -C LIBVIRT_FWI -s "${BASTION_IP}/32" -d "${VM_NETWORK_CIDR}" -o "${VM_NETWORK_IFACE}" -j ACCEPT >/dev/null 2>&1 \
-    || iptables -I LIBVIRT_FWI 1 -s "${BASTION_IP}/32" -d "${VM_NETWORK_CIDR}" -o "${VM_NETWORK_IFACE}" -j ACCEPT
+  sudo iptables -C LIBVIRT_FWI -s "${BASTION_IP}/32" -d "${VM_NETWORK_CIDR}" -o "${VM_NETWORK_IFACE}" -j ACCEPT >/dev/null 2>&1 \
+    || sudo iptables -I LIBVIRT_FWI 1 -s "${BASTION_IP}/32" -d "${VM_NETWORK_CIDR}" -o "${VM_NETWORK_IFACE}" -j ACCEPT
 fi
 
 if [[ "${VERBOSE}" == true ]]; then

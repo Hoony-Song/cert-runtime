@@ -23,7 +23,7 @@
     group: "{{ runtime_group }}"
     mode: "0700"
 
-- name: MiniPC runtime control public key 등록
+- name: bastion runtime control public key 등록
   ansible.posix.authorized_key:
     user: "{{ runtime_user }}"
     key: "{{ item }}"
@@ -113,7 +113,7 @@
     'Autostart:      yes' not in runtime_libvirt_network_autostart_info.stdout and
     'Autostart:       yes' not in runtime_libvirt_network_autostart_info.stdout
 
-- name: MiniPC에서 Runtime VM 네트워크 접근 허용
+- name: bastion에서 Runtime VM 네트워크 접근 허용
   ansible.builtin.iptables:
     chain: LIBVIRT_FWI
     source: "{{ item }}"

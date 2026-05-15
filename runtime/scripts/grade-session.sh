@@ -3,7 +3,7 @@ set -euo pipefail
 
 show_help() {
   cat <<'USAGE'
-사용법: grade-session.sh --session-id <id> --exam-type <type> --exam-set-id <id> [--grading-file <path>] [--session-root <dir>] [--output-file <path>] [--dry-run] [--verbose]
+사용법: grade-session.sh --session-id <id> --exam-type <type> --exam-set-id <id> [--grading-file <path>] [--question-bank-root <path>] [--session-root <dir>] [--output-file <path>] [--dry-run] [--verbose]
 
 question-bank grading DSL 파일을 입력으로 받아 kubernetes/command 채점을 실행하고 결과 JSON을 출력한다.
 USAGE
@@ -14,6 +14,7 @@ EXAM_TYPE="CKA"
 EXAM_SET_ID=""
 GRADING_FILE=""
 SESSION_ROOT="${CKA_SESSION_ROOT:-/var/lib/cka/sessions}"
+QUESTION_BANK_ROOT="${CKA_QUESTION_BANK_ROOT:-}"
 OUTPUT_FILE=""
 DRY_RUN=false
 VERBOSE=false
@@ -24,6 +25,7 @@ while [[ $# -gt 0 ]]; do
     --exam-type) EXAM_TYPE="${2:-}"; shift 2 ;;
     --exam-set-id) EXAM_SET_ID="${2:-}"; shift 2 ;;
     --grading-file) GRADING_FILE="${2:-}"; shift 2 ;;
+    --question-bank-root) QUESTION_BANK_ROOT="${2:-}"; shift 2 ;;
     --session-root) SESSION_ROOT="${2:-}"; shift 2 ;;
     --output-file) OUTPUT_FILE="${2:-}"; shift 2 ;;
     --dry-run) DRY_RUN=true; shift ;;
@@ -62,6 +64,56 @@ require_absolute_path() {
   fi
 }
 
+resolve_question_bank_root() {
+  local script_dir
+  local repo_root
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  repo_root="$(cd "${script_dir}/../.." && pwd)"
+
+  if [[ -n "${QUESTION_BANK_ROOT}" ]]; then
+    printf '%s\n' "${QUESTION_BANK_ROOT}"
+  elif [[ -d "${repo_root}/../cert-question-bank" ]]; then
+    (cd "${repo_root}/../cert-question-bank" && pwd)
+  elif [[ -d "/var/lib/cka/question-bank" ]]; then
+    printf '%s\n' "/var/lib/cka/question-bank"
+  else
+    printf '%s\n' "${repo_root}/../cert-question-bank"
+  fi
+}
+
+resolve_grading_file() {
+  python3 - "${QUESTION_BANK_ROOT}" "${EXAM_TYPE}" "${EXAM_SET_ID}" <<'PY'
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import yaml
+
+root = Path(sys.argv[1])
+exam_type = sys.argv[2].lower()
+exam_set_id = sys.argv[3]
+exam_set_file = root / "exam-sets" / exam_type / f"{exam_set_id}.yaml"
+
+with exam_set_file.open("r", encoding="utf-8") as handle:
+    exam_set = yaml.safe_load(handle) or {}
+
+questions = exam_set.get("questions") or []
+if not questions:
+    raise SystemExit("exam set에 questions가 없습니다.")
+
+entry = questions[0]
+question_dir = root / "questions" / exam_type / entry["id"] / entry["version"]
+question_file = question_dir / "question.yaml"
+
+with question_file.open("r", encoding="utf-8") as handle:
+    question = yaml.safe_load(handle) or {}
+
+grading_file = question_dir / (question.get("grading") or {}).get("file", "")
+print(grading_file)
+PY
+}
+
 require_value "--session-id" "${SESSION_ID}"
 require_value "--exam-type" "${EXAM_TYPE}"
 require_value "--exam-set-id" "${EXAM_SET_ID}"
@@ -70,12 +122,22 @@ require_absolute_path "--session-root" "${SESSION_ROOT}"
 
 SESSION_DIR="${SESSION_ROOT}/${SESSION_ID}"
 KUBECONFIG_FILE="${SESSION_DIR}/kubeconfig/config"
+QUESTION_BANK_ROOT="$(resolve_question_bank_root)"
+require_absolute_path "--question-bank-root" "${QUESTION_BANK_ROOT}"
+
+if [[ -z "${GRADING_FILE}" && "${DRY_RUN}" == false ]]; then
+  require_value "--exam-set-id" "${EXAM_SET_ID}"
+  GRADING_FILE="$(resolve_grading_file)"
+fi
 
 if [[ -z "${OUTPUT_FILE}" ]]; then
   OUTPUT_FILE="${SESSION_DIR}/artifacts/grade-result.json"
 fi
 
 if [[ "${DRY_RUN}" == true ]]; then
+  if [[ -z "${GRADING_FILE}" ]]; then
+    GRADING_FILE="$(resolve_grading_file 2>/dev/null || true)"
+  fi
   printf '{"sessionId":"%s","examType":"%s","examSetId":"%s","gradingFile":"%s","outputFile":"%s","dryRun":true}\n' \
     "${SESSION_ID}" "${EXAM_TYPE}" "${EXAM_SET_ID}" "${GRADING_FILE}" "${OUTPUT_FILE}"
   exit 0
@@ -113,7 +175,6 @@ export CKA_VERBOSE="${VERBOSE}"
 python3 <<'PY'
 import json
 import os
-import shlex
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -132,33 +193,32 @@ def now():
 def load_grading(path):
     with open(path, "r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
-    if "grading" in data and isinstance(data["grading"], dict):
-        data = data["grading"]
-    checks = data.get("checks", [])
+    spec = data.get("spec", data.get("grading", data))
+    checks = spec.get("checks", [])
     if not isinstance(checks, list):
-        raise ValueError("grading.checks는 list여야 합니다.")
-    return checks
+        raise ValueError("grading checks는 list여야 합니다.")
+    question_id = (data.get("metadata") or {}).get("questionId", "unknown")
+    target_cluster = spec.get("targetCluster", "cka-kind")
+    namespace = spec.get("namespace")
+    max_score = int(spec.get("maxScore", sum(int(check.get("points", check.get("score", 0))) for check in checks)))
+    return question_id, target_cluster, namespace, max_score, checks
 
 
-def run_command(command, timeout=30):
-    if isinstance(command, str):
-        args = shlex.split(command)
-    else:
-        args = [str(item) for item in command]
+def run_command(args, timeout=30):
     completed = subprocess.run(args, text=True, capture_output=True, timeout=timeout, check=False)
     return completed.returncode, completed.stdout, completed.stderr
 
 
-def run_kubectl(check):
-    resource = check.get("resource", {})
-    context = check.get("context") or check.get("environment", {}).get("context") or "cka-kind"
-    namespace = check.get("namespace") or check.get("environment", {}).get("namespace")
-    kind = resource.get("kind") or check.get("kind")
-    name = resource.get("name")
-    output = check.get("output", "json")
+def kubectl_get(check, context, default_namespace):
+    obj = check.get("object") or check.get("resource") or {}
+    namespace = check.get("namespace") or default_namespace
+    kind = obj.get("kind") or check.get("kind")
+    name = obj.get("name")
 
     if not kind:
-        raise ValueError("kubernetes check에는 resource.kind가 필요합니다.")
+        raise ValueError("check에는 object.kind가 필요합니다.")
+    if not name:
+        raise ValueError("check에는 object.name이 필요합니다.")
 
     args = [
         "kubectl",
@@ -169,100 +229,106 @@ def run_kubectl(check):
     ]
     if namespace:
         args.extend(["-n", namespace])
-    args.extend(["get", kind])
-    if name:
-        args.append(name)
-    args.extend(["-o", output])
+    args.extend(["get", kind, name, "-o", "json"])
 
     return run_command(args, timeout=int(check.get("timeoutSeconds", 30)))
 
 
-def evaluate_kubernetes(check):
-    rc, stdout, stderr = run_kubectl(check)
-    condition = check.get("condition", {})
-    passed = rc == 0
-    detail = stdout.strip() if stdout.strip() else stderr.strip()
+def json_path_value(data, path):
+    if not path.startswith("$."):
+        raise ValueError(f"지원하지 않는 JSON path입니다: {path}")
+    current = data
+    for raw_part in path[2:].split("."):
+        part = raw_part
+        while "[" in part:
+            key, rest = part.split("[", 1)
+            if key:
+                current = current[key]
+            index_text, part = rest.split("]", 1)
+            current = current[int(index_text)]
+            if part.startswith("."):
+                part = part[1:]
+        if part:
+            current = current[part]
+    return current
 
-    if condition.get("exists") is True:
-        passed = rc == 0
-    elif condition.get("exists") is False:
-        passed = rc != 0
-    elif "contains" in condition:
-        passed = condition["contains"] in stdout
-    elif "equals" in condition:
-        passed = stdout.strip() == str(condition["equals"])
 
-    return passed, rc, detail
+def values_equal(actual, expected):
+    return actual == expected or str(actual) == str(expected)
 
 
-def evaluate_command(check):
-    command = check.get("command")
-    if not command:
-        raise ValueError("command check에는 command가 필요합니다.")
+def evaluate_check(check, context, namespace):
+    check_type = check.get("type", "kubernetes-object-exists")
+    rc, stdout, stderr = kubectl_get(check, context, namespace)
 
-    rc, stdout, stderr = run_command(command, timeout=int(check.get("timeoutSeconds", 30)))
-    expected_rc = int(check.get("expectedExitCode", 0))
-    passed = rc == expected_rc
+    if check_type == "kubernetes-object-exists":
+        return rc == 0, rc, stdout.strip() if stdout.strip() else stderr.strip()
 
-    if "contains" in check:
-        passed = passed and str(check["contains"]) in stdout
-    if "equals" in check:
-        passed = passed and stdout.strip() == str(check["equals"])
+    if rc != 0:
+        return False, rc, stderr.strip()
 
-    detail = stdout.strip() if stdout.strip() else stderr.strip()
-    return passed, rc, detail
+    if check_type == "jsonpath-equals":
+        data = json.loads(stdout)
+        actual = json_path_value(data, check["path"])
+        expected = check.get("equals")
+        return values_equal(actual, expected), rc, f"{check['path']}={actual!r}"
+
+    raise ValueError(f"지원하지 않는 grading type입니다: {check_type}")
 
 
 def main():
-    checks = load_grading(os.environ["CKA_GRADING_FILE"])
-    results = []
+    question_id, target_cluster, namespace, max_score, checks = load_grading(os.environ["CKA_GRADING_FILE"])
+    check_results = []
     earned = 0
 
     for index, check in enumerate(checks, start=1):
-        name = check.get("name", f"check-{index}")
-        check_type = check.get("type") or check.get("gradingType") or "kubernetes"
-        score = int(check.get("score", 1))
+        name = check.get("id") or check.get("name") or f"check-{index}"
+        check_type = check.get("type", "kubernetes-object-exists")
+        score = int(check.get("points", check.get("score", 1)))
         try:
-            if check_type == "kubernetes":
-                passed, rc, detail = evaluate_kubernetes(check)
-            elif check_type == "command":
-                passed, rc, detail = evaluate_command(check)
-            else:
-                raise ValueError(f"지원하지 않는 grading type입니다: {check_type}")
+            passed, rc, detail = evaluate_check(check, target_cluster, namespace)
             if passed:
                 earned += score
-            results.append({
+            check_results.append({
                 "name": name,
                 "type": check_type,
-                "score": score,
-                "earnedScore": score if passed else 0,
+                "maxScore": score,
+                "score": score if passed else 0,
                 "passed": passed,
                 "exitCode": rc,
                 "detail": detail[:1000],
             })
         except Exception as exc:
-            results.append({
+            check_results.append({
                 "name": name,
                 "type": check_type,
-                "score": score,
-                "earnedScore": 0,
+                "maxScore": score,
+                "score": 0,
                 "passed": False,
                 "exitCode": 1,
                 "detail": str(exc),
             })
 
-    total = sum(item["score"] for item in results)
+    total = sum(item["maxScore"] for item in check_results) or max_score
+    question_status = "PASSED" if earned == total else "FAILED"
     output = {
         "sessionId": os.environ["CKA_SESSION_ID"],
         "examType": os.environ["CKA_EXAM_TYPE"],
         "examSetId": os.environ["CKA_EXAM_SET_ID"],
         "status": "FINISHED",
         "gradedAt": now(),
-        "totalScore": total,
-        "earnedScore": earned,
-        "passedChecks": sum(1 for item in results if item["passed"]),
-        "totalChecks": len(results),
-        "results": results,
+        "totalScore": earned,
+        "maxScore": total,
+        "results": [
+            {
+                "questionId": question_id,
+                "status": question_status,
+                "score": earned,
+                "maxScore": total,
+                "message": f"{sum(1 for item in check_results if item['passed'])}/{len(check_results)} checks passed",
+                "checks": check_results,
+            }
+        ],
     }
 
     with open(os.environ["CKA_OUTPUT_FILE"], "w", encoding="utf-8") as handle:

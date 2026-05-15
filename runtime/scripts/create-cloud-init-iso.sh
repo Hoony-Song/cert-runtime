@@ -3,7 +3,7 @@ set -euo pipefail
 
 show_help() {
   cat <<'USAGE'
-사용법: create-cloud-init-iso.sh --session-id <id> --vm-role <role> --vm-hostname <hostname> --ssh-public-key-file <path> [--output-dir <dir>] [--iso-path <path>] [--exam-type <type>] [--vm-username <user>] [--vm-interface <name>] [--network-mode dhcp|static] [--vm-ip-cidr <cidr>] [--vm-gateway <ip>] [--vm-dns <ip,ip>] [--dry-run] [--verbose]
+사용법: create-cloud-init-iso.sh --session-id <id> --vm-role <role> --vm-hostname <hostname> --ssh-public-key-file <path> [--ssh-private-key-file <path>] [--output-dir <dir>] [--iso-path <path>] [--exam-type <type>] [--vm-username <user>] [--vm-interface <name>] [--network-mode dhcp|static] [--vm-ip-cidr <cidr>] [--vm-gateway <ip>] [--vm-dns <ip,ip>] [--dry-run] [--verbose]
 
 세션 VM별 cloud-init user-data, meta-data, network-config를 렌더링하고 ISO를 생성한다.
 USAGE
@@ -13,6 +13,8 @@ SESSION_ID=""
 VM_ROLE=""
 VM_HOSTNAME=""
 SSH_PUBLIC_KEY_FILE=""
+SSH_PRIVATE_KEY_FILE=""
+ADMIN_SSH_PUBLIC_KEY_FILE=""
 OUTPUT_DIR=""
 ISO_PATH=""
 EXAM_TYPE="CKA"
@@ -32,6 +34,8 @@ while [[ $# -gt 0 ]]; do
     --vm-role) VM_ROLE="${2:-}"; shift 2 ;;
     --vm-hostname) VM_HOSTNAME="${2:-}"; shift 2 ;;
     --ssh-public-key-file) SSH_PUBLIC_KEY_FILE="${2:-}"; shift 2 ;;
+    --ssh-private-key-file) SSH_PRIVATE_KEY_FILE="${2:-}"; shift 2 ;;
+    --admin-ssh-public-key-file) ADMIN_SSH_PUBLIC_KEY_FILE="${2:-}"; shift 2 ;;
     --output-dir) OUTPUT_DIR="${2:-}"; shift 2 ;;
     --iso-path) ISO_PATH="${2:-}"; shift 2 ;;
     --exam-type) EXAM_TYPE="${2:-}"; shift 2 ;;
@@ -128,6 +132,11 @@ if grep -q "PRIVATE KEY" "${SSH_PUBLIC_KEY_FILE}"; then
   exit 1
 fi
 
+if [[ -n "${SSH_PRIVATE_KEY_FILE}" && ! -f "${SSH_PRIVATE_KEY_FILE}" ]]; then
+  echo "SSH private key 파일이 없습니다: ${SSH_PRIVATE_KEY_FILE}" >&2
+  exit 1
+fi
+
 if [[ -e "${ISO_PATH}" ]]; then
   echo "이미 cloud-init ISO가 존재합니다: ${ISO_PATH}" >&2
   exit 1
@@ -180,15 +189,26 @@ if getent group "${LIBVIRT_ACCESS_GROUP}" >/dev/null 2>&1; then
 fi
 chmod 2770 "${OUTPUT_DIR}"
 
-"${SCRIPT_DIR}/render-cloud-init.sh" \
-  --session-id "${SESSION_ID}" \
-  --vm-role "${VM_ROLE}" \
-  --vm-hostname "${VM_HOSTNAME}" \
-  --ssh-public-key-file "${SSH_PUBLIC_KEY_FILE}" \
-  --output-dir "${OUTPUT_DIR}" \
-  --exam-type "${EXAM_TYPE}" \
-  --vm-username "${VM_USERNAME}" \
+RENDER_ARGS=(
+  --session-id "${SESSION_ID}"
+  --vm-role "${VM_ROLE}"
+  --vm-hostname "${VM_HOSTNAME}"
+  --ssh-public-key-file "${SSH_PUBLIC_KEY_FILE}"
+  --output-dir "${OUTPUT_DIR}"
+  --exam-type "${EXAM_TYPE}"
+  --vm-username "${VM_USERNAME}"
   --vm-interface "${VM_INTERFACE}"
+)
+
+if [[ -n "${SSH_PRIVATE_KEY_FILE}" ]]; then
+  RENDER_ARGS+=(--ssh-private-key-file "${SSH_PRIVATE_KEY_FILE}")
+fi
+
+if [[ -n "${ADMIN_SSH_PUBLIC_KEY_FILE}" && -f "${ADMIN_SSH_PUBLIC_KEY_FILE}" ]]; then
+  RENDER_ARGS+=(--admin-ssh-public-key-file "${ADMIN_SSH_PUBLIC_KEY_FILE}")
+fi
+
+"${SCRIPT_DIR}/render-cloud-init.sh" "${RENDER_ARGS[@]}"
 
 if getent group "${LIBVIRT_ACCESS_GROUP}" >/dev/null 2>&1; then
   chgrp "${LIBVIRT_ACCESS_GROUP}" "${OUTPUT_DIR}"

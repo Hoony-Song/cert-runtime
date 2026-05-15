@@ -23,25 +23,27 @@ CKA/CKAD/CKS 모의시험 플랫폼의 Runtime 실행 영역 저장소이다.
 - 사용자 결과 저장
 - secret, private key, qcow2 image, generated ISO, session data
 
-## 하네스
-
-작업 전 루트 작업공간의 `../docs/harness`에서 작업 유형에 맞는 하네스를 읽는다.
-
-- Runtime: `../docs/harness/00-project-brief.md`, `../docs/harness/01-contracts.md`, `../docs/harness/04-runtime-harness.md`, `../docs/harness/06-security-harness.md`
-- Security: `../docs/harness/00-project-brief.md`, `../docs/harness/01-contracts.md`, `../docs/harness/06-security-harness.md`
-- Release: `../docs/harness/00-project-brief.md`, `../docs/harness/01-contracts.md`, `../docs/harness/07-release-harness.md`
-
 ## Task 기준
 
 Task 문서는 루트 작업공간의 `../docs/tasks`를 단일 기준으로 사용한다.
 
 작업 시작 전 확인 순서:
 
-1. `../docs/project-state.md`
-2. `../docs/tasks/<TASK-ID>.md`
-3. 루트 `../docs/harness/*.md` 중 작업 유형에 필요한 하네스
+1. 루트 `../AGENTS.md`
+2. `../docs/project-state.md`
+3. `../docs/tasks/<TASK-ID>.md`
 
 이 저장소에서 다른 저장소 변경이 필요해지면 직접 넘겨서 수정하지 않고 루트 `../docs/project-state.md`의 cross-project TODO에 기록한다.
+
+## Runtime 계약
+
+Backend/Worker와 Runtime 사이의 고정 계약은 `docs/runtime-contract.md`를 기준으로 한다.
+
+- 호스트 명칭은 `bastion`, `infra`, `runtime`으로 통일한다.
+- Runtime root는 `/var/lib/cka`이다.
+- 세션 내부 VM hostname은 `cka0001`, `cka0002`, `cka0003`이다.
+- Runtime 전역 자원명은 `<session_id>-<node_name>` 형식이다.
+- script는 성공 시 stdout에 Backend가 파싱 가능한 JSON 한 개를 출력한다.
 
 ## 핵심 보안 정책
 

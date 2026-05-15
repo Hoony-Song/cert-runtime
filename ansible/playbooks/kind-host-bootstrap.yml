@@ -1,0 +1,66 @@
+---
+- name: kind 전용 VM 구성
+  hosts: session_vms
+  become: true
+  gather_facts: true
+
+  vars:
+    kind_version: "{{ lookup('env', 'CKA_KIND_VERSION') | default('v0.23.0', true) }}"
+    kind_arch: "{{ lookup('env', 'CKA_KIND_ARCH') | default('amd64', true) }}"
+    kubectl_version: "{{ lookup('env', 'CKA_KUBECTL_VERSION') | default('v1.30.0', true) }}"
+
+  pre_tasks:
+    - name: session_id 확인
+      ansible.builtin.assert:
+        that:
+          - session_id is defined
+          - session_id | length > 0
+        fail_msg: "session_id가 필요합니다."
+
+  tasks:
+    - name: kind VM에서만 실행
+      ansible.builtin.meta: end_host
+      when: vm_role != "kind"
+
+    - name: Docker 설치
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - docker.io
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Docker 서비스 활성화
+      ansible.builtin.systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: kind 설치
+      ansible.builtin.get_url:
+        url: "https://kind.sigs.k8s.io/dl/{{ kind_version }}/kind-linux-{{ kind_arch }}"
+        dest: /usr/local/bin/kind
+        mode: "0755"
+
+    - name: kubectl 설치
+      ansible.builtin.get_url:
+        url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/{{ kind_arch }}/kubectl"
+        dest: /usr/local/bin/kubectl
+        mode: "0755"
+
+    - name: ubuntu 사용자를 docker 그룹에 추가
+      ansible.builtin.user:
+        name: "{{ ansible_user }}"
+        groups:
+          - docker
+        append: true
+
+    - name: 세션 작업 디렉터리 생성
+      ansible.builtin.file:
+        path: "/var/lib/cka/sessions/{{ session_id }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0700"

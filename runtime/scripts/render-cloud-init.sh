@@ -3,7 +3,7 @@ set -euo pipefail
 
 show_help() {
   cat <<'USAGE'
-Usage: render-cloud-init.sh --session-id <id> --vm-role <role> --vm-hostname <hostname> --ssh-public-key-file <path> --output-dir <dir> [--exam-type <type>] [--vm-username <user>] [--vm-interface <name>] [--dry-run] [--verbose]
+Usage: render-cloud-init.sh --session-id <id> --vm-role <role> --vm-hostname <hostname> --ssh-public-key-file <path> --output-dir <dir> [--ssh-private-key-file <path>] [--exam-type <type>] [--vm-username <user>] [--vm-interface <name>] [--dry-run] [--verbose]
 
 Renders cloud-init user-data, meta-data, and network-config for a session VM.
 The SSH public key is read at VM creation time and is never stored in the Golden Image.
@@ -14,6 +14,8 @@ SESSION_ID=""
 VM_ROLE=""
 VM_HOSTNAME=""
 SSH_PUBLIC_KEY_FILE=""
+SSH_PRIVATE_KEY_FILE=""
+ADMIN_SSH_PUBLIC_KEY_FILE=""
 OUTPUT_DIR=""
 EXAM_TYPE="CKA"
 VM_USERNAME="ubuntu"
@@ -27,6 +29,8 @@ while [[ $# -gt 0 ]]; do
     --vm-role) VM_ROLE="${2:-}"; shift 2 ;;
     --vm-hostname) VM_HOSTNAME="${2:-}"; shift 2 ;;
     --ssh-public-key-file) SSH_PUBLIC_KEY_FILE="${2:-}"; shift 2 ;;
+    --ssh-private-key-file) SSH_PRIVATE_KEY_FILE="${2:-}"; shift 2 ;;
+    --admin-ssh-public-key-file) ADMIN_SSH_PUBLIC_KEY_FILE="${2:-}"; shift 2 ;;
     --output-dir) OUTPUT_DIR="${2:-}"; shift 2 ;;
     --exam-type) EXAM_TYPE="${2:-}"; shift 2 ;;
     --vm-username) VM_USERNAME="${2:-}"; shift 2 ;;
@@ -59,6 +63,8 @@ if [[ ! -f "${SSH_PUBLIC_KEY_FILE}" ]]; then
 fi
 
 SSH_PUBLIC_KEY="$(tr -d '\r\n' < "${SSH_PUBLIC_KEY_FILE}")"
+SSH_PRIVATE_KEY_B64=""
+ADMIN_SSH_KEY_LINE=""
 
 case "${SSH_PUBLIC_KEY}" in
   ssh-rsa\ *|ssh-ed25519\ *|ecdsa-sha2-nistp256\ *|ecdsa-sha2-nistp384\ *|ecdsa-sha2-nistp521\ *) ;;
@@ -68,6 +74,23 @@ esac
 if grep -q "PRIVATE KEY" "${SSH_PUBLIC_KEY_FILE}"; then
   echo "private key로 보이는 파일은 cloud-init에 사용할 수 없습니다." >&2
   exit 1
+fi
+
+if [[ -n "${ADMIN_SSH_PUBLIC_KEY_FILE}" && -f "${ADMIN_SSH_PUBLIC_KEY_FILE}" ]]; then
+  ADMIN_KEY="$(tr -d '\r\n' < "${ADMIN_SSH_PUBLIC_KEY_FILE}")"
+  ADMIN_SSH_KEY_LINE=$'\n      - '"${ADMIN_KEY}"
+fi
+
+if [[ -n "${SSH_PRIVATE_KEY_FILE}" ]]; then
+  if [[ ! -f "${SSH_PRIVATE_KEY_FILE}" ]]; then
+    echo "SSH private key 파일이 없습니다: ${SSH_PRIVATE_KEY_FILE}" >&2
+    exit 1
+  fi
+  if ! grep -q "PRIVATE KEY" "${SSH_PRIVATE_KEY_FILE}"; then
+    echo "private key 형식이 아닙니다: ${SSH_PRIVATE_KEY_FILE}" >&2
+    exit 1
+  fi
+  SSH_PRIVATE_KEY_B64="$(base64 -w 0 < "${SSH_PRIVATE_KEY_FILE}")"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -86,7 +109,13 @@ render_template() {
     -e "s|\${VM_INTERFACE}|${VM_INTERFACE}|g" \
     -e "s|\${EXAM_TYPE}|${EXAM_TYPE}|g" \
     -e "s|\${SSH_PUBLIC_KEY}|${SSH_PUBLIC_KEY}|g" \
-    "${template_path}" > "${output_path}"
+    -e "s|\${SSH_PRIVATE_KEY_B64}|${SSH_PRIVATE_KEY_B64}|g" \
+    "${template_path}" \
+    | ADMIN_SSH_KEY_LINE="${ADMIN_SSH_KEY_LINE}" python3 -c "
+import sys, os
+content = sys.stdin.read()
+sys.stdout.write(content.replace('\${ADMIN_SSH_KEY_LINE}', os.environ.get('ADMIN_SSH_KEY_LINE', '')))
+" > "${output_path}"
 }
 
 if [[ "${DRY_RUN}" == true ]]; then

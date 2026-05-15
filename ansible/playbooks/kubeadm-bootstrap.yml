@@ -45,7 +45,7 @@
           --apiserver-bind-port={{ kubeadm_apiserver_port }}
           --pod-network-cidr={{ kubeadm_pod_network_cidr }}
           --service-cidr={{ kubeadm_service_cidr }}
-          --node-name={{ inventory_hostname }}
+          --node-name={{ kube_node_name | default(inventory_hostname) }}
       register: kubeadm_init_result
       changed_when: true
       when:
@@ -94,7 +94,7 @@
 
     - name: worker join 실행
       ansible.builtin.command:
-        cmd: "{{ hostvars[kubeadm_control_plane_host].kubeadm_join_command.stdout }} --node-name={{ inventory_hostname }}"
+        cmd: "{{ hostvars[kubeadm_control_plane_host].kubeadm_join_command.stdout }} --node-name={{ kube_node_name | default(inventory_hostname) }}"
       changed_when: true
       no_log: true
       when:

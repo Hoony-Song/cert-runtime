@@ -20,8 +20,8 @@ VM 생성 시 세션별 SSH public key를 주입하기 위한 cloud-init templat
 ```bash
 runtime/scripts/render-cloud-init.sh \
   --session-id cka-session-001 \
-  --vm-role control-plane \
-  --vm-hostname cka-session-001-cp \
+  --vm-role cka0001 \
+  --vm-hostname cka0001 \
   --ssh-public-key-file /path/to/session.pub \
-  --output-dir /var/lib/cka/sessions/cka-session-001/cloud-init/control-plane
+  --output-dir /var/lib/cka/sessions/cka-session-001/cloud-init/cka0001
 ```
