@@ -99,3 +99,46 @@ Backend/Worker는 Runtime 호스트에 SSH로 접속한 뒤 아래 script를 호
   ]
 }
 ```
+
+## Runtime Grading Agent interface
+
+최종 채점 구조에서는 Runtime Node마다 local Grading Agent를 둘 수 있다. Agent는 중앙 채점 서버에 VM private key를 넘기지 않고, Runtime Node 안에서 local session dir과 kubeconfig를 사용해 채점을 실행한다.
+
+초기 Agent는 기존 `grade-session.sh`를 감싸는 HTTP contract를 제공한다.
+
+```text
+GET  /healthz
+POST /grade
+```
+
+`POST /grade` 요청:
+
+```json
+{
+  "jobId": "grade_xxx",
+  "sessionId": "sess_xxx",
+  "examType": "CKA",
+  "examSetId": "cka-mock-001",
+  "questionIds": ["cka-q001"]
+}
+```
+
+성공 응답은 `grade-session.sh` 결과 JSON과 동일한 shape를 유지한다.
+
+실패 응답:
+
+```json
+{
+  "status": "GRADING_FAILED",
+  "errorCode": "GRADE_SCRIPT_FAILED",
+  "message": "failure summary",
+  "retryable": true
+}
+```
+
+Agent 원칙:
+
+- `sessionId`, `examType`, `examSetId`는 안전한 문자만 허용한다.
+- Agent는 Runtime Node의 loopback 또는 내부망에서만 열어야 한다.
+- 응시자 VM에 grading file 또는 answer file을 복사하지 않는다.
+- 중앙 Orchestrator에 VM private key를 추가하지 않는다.
