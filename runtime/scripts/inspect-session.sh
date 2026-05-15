@@ -69,20 +69,25 @@ vm_state() {
 require_value "--session-id" "${SESSION_ID}"
 require_safe_session_id "${SESSION_ID}"
 
+export LIBVIRT_DEFAULT_URI="${LIBVIRT_DEFAULT_URI:-qemu:///system}"
+
 CP_NODE_NAME="cka0001"
 KIND_NODE_NAME="cka0002"
 WORKER_NODE_NAME="cka0003"
 CP_DOMAIN="${SESSION_ID}-${CP_NODE_NAME}"
 KIND_DOMAIN="${SESSION_ID}-${KIND_NODE_NAME}"
 WORKER_DOMAIN="${SESSION_ID}-${WORKER_NODE_NAME}"
+RUNTIME_SSH_TARGET="${CKA_RUNTIME_SSH_TARGET:-cka-runtime@runtime}"
 
 if [[ "${DRY_RUN}" == true ]]; then
-  printf '{"sessionId":"%s","examType":"%s","examSetId":"%s","status":"READY","vms":[{"name":"%s","domain":"%s","ip":"","role":"kubeadm-cp"},{"name":"%s","domain":"%s","ip":"","role":"kind"},{"name":"%s","domain":"%s","ip":"","role":"kubeadm-worker"}],"contexts":["cka-vm","cka-kind"],"adminCommands":["ssh cka-runtime@runtime virsh console %s","ssh cka-runtime@runtime virsh console %s","ssh cka-runtime@runtime virsh console %s"],"dryRun":true}\n' \
+  printf '{"sessionId":"%s","examType":"%s","examSetId":"%s","status":"READY","vms":[{"name":"%s","domain":"%s","ip":"","role":"kubeadm-cp"},{"name":"%s","domain":"%s","ip":"","role":"kind"},{"name":"%s","domain":"%s","ip":"","role":"kubeadm-worker"}],"contexts":["cka-vm","cka-kind"],"adminCommands":["ssh %s virsh console %s","ssh %s virsh console %s","ssh %s virsh console %s"],"dryRun":true}\n' \
     "${SESSION_ID}" "${EXAM_TYPE}" "${EXAM_SET_ID}" \
     "${CP_NODE_NAME}" "${CP_DOMAIN}" \
     "${KIND_NODE_NAME}" "${KIND_DOMAIN}" \
     "${WORKER_NODE_NAME}" "${WORKER_DOMAIN}" \
-    "${CP_DOMAIN}" "${KIND_DOMAIN}" "${WORKER_DOMAIN}"
+    "${RUNTIME_SSH_TARGET}" "${CP_DOMAIN}" \
+    "${RUNTIME_SSH_TARGET}" "${KIND_DOMAIN}" \
+    "${RUNTIME_SSH_TARGET}" "${WORKER_DOMAIN}"
   exit 0
 fi
 
@@ -97,9 +102,11 @@ if [[ "${VERBOSE}" == true ]]; then
   printf '{"sessionId":"%s","status":"INSPECTING"}\n' "${SESSION_ID}" >&2
 fi
 
-printf '{"sessionId":"%s","examType":"%s","examSetId":"%s","status":"READY","vms":[{"name":"%s","domain":"%s","ip":"%s","role":"kubeadm-cp","state":"%s"},{"name":"%s","domain":"%s","ip":"%s","role":"kind","state":"%s"},{"name":"%s","domain":"%s","ip":"%s","role":"kubeadm-worker","state":"%s"}],"contexts":["cka-vm","cka-kind"],"adminCommands":["ssh cka-runtime@runtime virsh console %s","ssh cka-runtime@runtime virsh console %s","ssh cka-runtime@runtime virsh console %s"]}\n' \
+printf '{"sessionId":"%s","examType":"%s","examSetId":"%s","status":"READY","vms":[{"name":"%s","domain":"%s","ip":"%s","role":"kubeadm-cp","state":"%s"},{"name":"%s","domain":"%s","ip":"%s","role":"kind","state":"%s"},{"name":"%s","domain":"%s","ip":"%s","role":"kubeadm-worker","state":"%s"}],"contexts":["cka-vm","cka-kind"],"adminCommands":["ssh %s virsh console %s","ssh %s virsh console %s","ssh %s virsh console %s"]}\n' \
   "${SESSION_ID}" "${EXAM_TYPE}" "${EXAM_SET_ID}" \
   "${CP_NODE_NAME}" "${CP_DOMAIN}" "${CP_IP}" "${CP_STATE}" \
   "${KIND_NODE_NAME}" "${KIND_DOMAIN}" "${KIND_IP}" "${KIND_STATE}" \
   "${WORKER_NODE_NAME}" "${WORKER_DOMAIN}" "${WORKER_IP}" "${WORKER_STATE}" \
-  "${CP_DOMAIN}" "${KIND_DOMAIN}" "${WORKER_DOMAIN}"
+  "${RUNTIME_SSH_TARGET}" "${CP_DOMAIN}" \
+  "${RUNTIME_SSH_TARGET}" "${KIND_DOMAIN}" \
+  "${RUNTIME_SSH_TARGET}" "${WORKER_DOMAIN}"

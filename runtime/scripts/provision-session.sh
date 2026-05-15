@@ -155,6 +155,7 @@ require_absolute_path "--session-root" "${SESSION_ROOT}"
 require_absolute_path "--session-disk-dir" "${SESSION_DISK_DIR}"
 
 ADMIN_SSH_PUBLIC_KEY_FILE="${CKA_ADMIN_SSH_PUBLIC_KEY_FILE:-/home/cka-runtime/.ssh/cert-ssh.pub}"
+RUNTIME_SSH_TARGET="${CKA_RUNTIME_SSH_TARGET:-cka-runtime@runtime}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -376,12 +377,14 @@ run_step "bastion" "${SCRIPT_DIR}/create-bastion.sh" \
   --verbose
 
 trap - ERR
-READY_JSON="$(printf '{"sessionId":"%s","examType":"%s","examSetId":"%s","status":"READY","vms":[{"name":"%s","domain":"%s-%s","ip":"%s","role":"kubeadm-cp"},{"name":"%s","domain":"%s-%s","ip":"%s","role":"kind"},{"name":"%s","domain":"%s-%s","ip":"%s","role":"kubeadm-worker"}],"contexts":["cka-vm","cka-kind"],"adminCommands":["ssh cka-runtime@runtime virsh console %s-%s","ssh cka-runtime@runtime virsh console %s-%s","ssh cka-runtime@runtime virsh console %s-%s"],"kubeconfig":"%s"}' \
+READY_JSON="$(printf '{"sessionId":"%s","examType":"%s","examSetId":"%s","status":"READY","vms":[{"name":"%s","domain":"%s-%s","ip":"%s","role":"kubeadm-cp"},{"name":"%s","domain":"%s-%s","ip":"%s","role":"kind"},{"name":"%s","domain":"%s-%s","ip":"%s","role":"kubeadm-worker"}],"contexts":["cka-vm","cka-kind"],"adminCommands":["ssh %s virsh console %s-%s","ssh %s virsh console %s-%s","ssh %s virsh console %s-%s"],"kubeconfig":"%s"}' \
   "${SESSION_ID}" "${EXAM_TYPE}" "${EXAM_SET_ID}" \
   "${CP_NODE_NAME}" "${SESSION_ID}" "${CP_NODE_NAME}" "${CP_IP}" \
   "${KIND_NODE_NAME}" "${SESSION_ID}" "${KIND_NODE_NAME}" "${KIND_IP}" \
   "${WORKER_NODE_NAME}" "${SESSION_ID}" "${WORKER_NODE_NAME}" "${WORKER_IP}" \
-  "${SESSION_ID}" "${CP_NODE_NAME}" "${SESSION_ID}" "${KIND_NODE_NAME}" "${SESSION_ID}" "${WORKER_NODE_NAME}" \
+  "${RUNTIME_SSH_TARGET}" "${SESSION_ID}" "${CP_NODE_NAME}" \
+  "${RUNTIME_SSH_TARGET}" "${SESSION_ID}" "${KIND_NODE_NAME}" \
+  "${RUNTIME_SSH_TARGET}" "${SESSION_ID}" "${WORKER_NODE_NAME}" \
   "${KUBECONFIG_DIR}/config")"
 printf '%s\n' "${READY_JSON}" >"${STATE_FILE}"
 chmod 0600 "${STATE_FILE}"
