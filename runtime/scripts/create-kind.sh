@@ -173,8 +173,8 @@ chmod 600 "${KUBECONFIG_FILE}"
 NODE_CONTAINER="${CLUSTER_NAME}-control-plane"
 docker update \
   --cpus "${CKA_KIND_CPUS:-2}" \
-  --memory "${CKA_KIND_MEMORY:-3g}" \
-  --memory-swap "${CKA_KIND_MEMORY_SWAP:-${CKA_KIND_MEMORY:-3g}}" \
+  --memory "${CKA_KIND_MEMORY:-2560m}" \
+  --memory-swap "${CKA_KIND_MEMORY_SWAP:-${CKA_KIND_MEMORY:-2560m}}" \
   --pids-limit "${CKA_KIND_PIDS_LIMIT:-2048}" \
   "${NODE_CONTAINER}" >/dev/null
 
