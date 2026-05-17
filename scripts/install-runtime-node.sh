@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 usage() {
   cat <<'USAGE'
@@ -74,7 +74,21 @@ WORK_DIR="$(mktemp -d /tmp/cert-runtime-install.XXXXXX)"
 MANIFEST_PATH="${WORK_DIR}/manifest.json"
 MANIFEST_ENV="${WORK_DIR}/manifest.env"
 CURRENT_STEP="start"
-trap 'rm -rf "${WORK_DIR}"' EXIT
+INSTALLER_COMPLETED=false
+LOG_FILE="/var/log/cert-runtime-node-installer.log"
+touch "${LOG_FILE}"
+chmod 0644 "${LOG_FILE}"
+exec > >(tee -a "${LOG_FILE}") 2>&1
+
+cleanup() {
+  local exit_code=$?
+  if [[ "${exit_code}" -ne 0 && "${INSTALLER_COMPLETED}" != true ]]; then
+    report_status "FAILED" "${CURRENT_STEP}" "runtime node installer failed at ${CURRENT_STEP}. See ${LOG_FILE}"
+  fi
+  rm -rf "${WORK_DIR}"
+  exit "${exit_code}"
+}
+trap cleanup EXIT
 
 json_report_payload() {
   local status="$1"
@@ -112,15 +126,6 @@ report_status() {
   local message="$3"
   api_post "/runtime-node-joins/report" "$(json_report_payload "${status}" "${step}" "${message}")" || true
 }
-
-fail_report() {
-  local exit_code=$?
-  if [[ "${exit_code}" -ne 0 ]]; then
-    report_status "FAILED" "${CURRENT_STEP}" "runtime node installer failed at ${CURRENT_STEP}"
-  fi
-  exit "${exit_code}"
-}
-trap fail_report ERR
 
 claim_join() {
   local hostname_value="$1"
@@ -206,8 +211,13 @@ install_packages() {
     echo "apt-get is required on the runtime node" >&2
     exit 1
   fi
+  export DEBIAN_FRONTEND=noninteractive
+  export NEEDRESTART_MODE=a
   apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y "${REQUIRED_PACKAGES[@]}"
+  apt-get install -y \
+    -o Dpkg::Options::=--force-confdef \
+    -o Dpkg::Options::=--force-confold \
+    "${REQUIRED_PACKAGES[@]}"
 }
 
 install_kind() {
@@ -382,4 +392,5 @@ CURRENT_STEP="complete"
 report_status "INSTALLING" "${CURRENT_STEP}" "registering runtime node"
 complete_join
 
+INSTALLER_COMPLETED=true
 echo "Runtime node join completed."
