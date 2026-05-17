@@ -10,6 +10,10 @@ Options:
   --manifest-url <url>          Runtime artifact manifest URL.
   --authorized-key <key>        SSH public key allowed for cka-runtime.
   --authorized-key-file <path>  File containing SSH public keys.
+  --vm-admin-authorized-key <key>
+                                SSH public key injected into session VMs for terminal access.
+  --vm-admin-authorized-key-file <path>
+                                File containing the SSH public key injected into session VMs.
   --skip-packages               Skip apt package installation.
   --help                        Show this help.
 USAGE
@@ -20,6 +24,8 @@ API_URL="https://api.sweetlabs.kr"
 MANIFEST_URL="https://artifacts.sweetlabs.kr/runtime/manifests/runtime-node-v20260517-runtime-node-v1.json"
 AUTHORIZED_KEY=""
 AUTHORIZED_KEY_FILE=""
+VM_ADMIN_AUTHORIZED_KEY=""
+VM_ADMIN_AUTHORIZED_KEY_FILE=""
 SKIP_PACKAGES=false
 
 while [[ $# -gt 0 ]]; do
@@ -42,6 +48,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --authorized-key-file)
       AUTHORIZED_KEY_FILE="${2:-}"
+      shift 2
+      ;;
+    --vm-admin-authorized-key)
+      VM_ADMIN_AUTHORIZED_KEY="${2:-}"
+      shift 2
+      ;;
+    --vm-admin-authorized-key-file)
+      VM_ADMIN_AUTHORIZED_KEY_FILE="${2:-}"
       shift 2
       ;;
     --skip-packages)
@@ -276,6 +290,14 @@ setup_runtime_user() {
   fi
   if [[ -n "${AUTHORIZED_KEY}" ]]; then
     grep -qxF "${AUTHORIZED_KEY}" "${runtime_home}/.ssh/authorized_keys" || echo "${AUTHORIZED_KEY}" >> "${runtime_home}/.ssh/authorized_keys"
+  fi
+  if [[ -n "${VM_ADMIN_AUTHORIZED_KEY_FILE}" && -f "${VM_ADMIN_AUTHORIZED_KEY_FILE}" ]]; then
+    VM_ADMIN_AUTHORIZED_KEY="$(tr -d '\r\n' < "${VM_ADMIN_AUTHORIZED_KEY_FILE}")"
+  fi
+  if [[ -n "${VM_ADMIN_AUTHORIZED_KEY}" ]]; then
+    printf '%s\n' "${VM_ADMIN_AUTHORIZED_KEY}" > "${runtime_home}/.ssh/cert-ssh.pub"
+    chown "${RUNTIME_USER}:${RUNTIME_USER}" "${runtime_home}/.ssh/cert-ssh.pub"
+    chmod 0644 "${runtime_home}/.ssh/cert-ssh.pub"
   fi
 
   cat >/etc/sudoers.d/cka-runtime <<'SUDOERS'
