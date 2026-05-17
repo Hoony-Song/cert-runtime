@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 show_help() {
   cat <<'USAGE'
@@ -105,6 +105,7 @@ EOF
 
 run_step() {
   local step="$1"
+  local step_status=0
   shift
 
   CURRENT_STEP="${step}"
@@ -114,7 +115,10 @@ run_step() {
     printf '{"sessionId":"%s","step":"%s","status":"RUNNING"}\n' "${SESSION_ID}" "${step}"
   fi
 
-  "$@" >"${LOG_DIR}/${step}.log" 2>&1
+  "$@" >"${LOG_DIR}/${step}.log" 2>&1 || step_status=$?
+  if (( step_status != 0 )); then
+    handle_failure "${step_status}"
+  fi
 }
 
 discover_vm_ip() {
@@ -204,7 +208,7 @@ setfacl -m u:libvirt-qemu:rx "${SESSION_DIR}"
 write_state "PROVISIONING" "init"
 
 handle_failure() {
-  local exit_code=$?
+  local exit_code="${1:-$?}"
   local message
   local failure_log_dir
 
