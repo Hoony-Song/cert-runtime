@@ -21,7 +21,7 @@ USAGE
 
 JOIN_TOKEN=""
 API_URL="https://api.sweetlabs.kr"
-MANIFEST_URL="https://artifacts.sweetlabs.kr/runtime/manifests/runtime-node-v20260517-runtime-node-v1.json"
+MANIFEST_URL="https://artifacts.sweetlabs.kr/runtime/manifests/runtime-node-v20260517-runtime-node-v2.json"
 AUTHORIZED_KEY=""
 AUTHORIZED_KEY_FILE=""
 VM_ADMIN_AUTHORIZED_KEY=""

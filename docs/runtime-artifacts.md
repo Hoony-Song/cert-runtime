@@ -86,6 +86,9 @@ runtime/manifests/runtime-node-<version>.json
 
 manifest에는 runtime bundle URL, checksum, golden image URL/checksum, 필수 패키지 목록, 설치 기준 runtime root가 포함된다.
 
+이미 게시된 versioned object는 같은 key로 덮어쓰지 않는다. Cloudflare/R2 custom domain 캐시가 기존 bytes를 잠시 반환할 수 있으므로,
+runtime bundle이나 manifest를 갱신할 때는 `runtime-node-<new-version>.json`과 `cert-runtime-<new-version>.tar.gz`처럼 새 version key를 발행한다.
+
 ## Join Installer
 
 Admin에서 생성한 one-line command는 아래 installer를 사용한다.
