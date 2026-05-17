@@ -179,6 +179,7 @@ manifest = json.load(open(sys.argv[1], encoding="utf-8"))
 bundle = manifest.get("runtimeBundle") or {}
 golden = manifest.get("goldenImage") or {}
 kind = manifest.get("kind") or {}
+kubectl = manifest.get("kubectl") or {}
 packages = manifest.get("requiredPackages") or []
 
 def emit(name, value):
@@ -197,6 +198,8 @@ emit("GOLDEN_COMPRESSION", golden.get("compression") or "")
 emit("GOLDEN_INSTALL_PATH", golden.get("installPath") or "")
 emit("KIND_URL", kind.get("url") or "https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64")
 emit("KIND_SHA256", kind.get("sha256") or "")
+emit("KUBECTL_URL", kubectl.get("url") or "https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl")
+emit("KUBECTL_SHA256", kubectl.get("sha256") or "")
 print("REQUIRED_PACKAGES=(" + " ".join(shlex.quote(str(item)) for item in packages) + ")")
 PY
   # shellcheck disable=SC1090
@@ -227,6 +230,15 @@ install_kind() {
   download_file "${KIND_URL}" /usr/local/bin/kind
   verify_sha256 /usr/local/bin/kind "${KIND_SHA256}"
   chmod 0755 /usr/local/bin/kind
+}
+
+install_kubectl() {
+  if command -v kubectl >/dev/null 2>&1; then
+    return 0
+  fi
+  download_file "${KUBECTL_URL}" /usr/local/bin/kubectl
+  verify_sha256 /usr/local/bin/kubectl "${KUBECTL_SHA256}"
+  chmod 0755 /usr/local/bin/kubectl
 }
 
 setup_runtime_user() {
@@ -373,6 +385,10 @@ install_packages
 CURRENT_STEP="kind"
 report_status "INSTALLING" "${CURRENT_STEP}" "installing kind"
 install_kind
+
+CURRENT_STEP="kubectl"
+report_status "INSTALLING" "${CURRENT_STEP}" "installing kubectl"
+install_kubectl
 
 CURRENT_STEP="runtime-user"
 report_status "INSTALLING" "${CURRENT_STEP}" "creating runtime user"
