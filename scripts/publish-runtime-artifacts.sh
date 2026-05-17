@@ -200,6 +200,11 @@ manifest = {
         "url": "https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64",
         "sha256": ""
     },
+    "kubectl": {
+        "version": "v1.30.0",
+        "url": "https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl",
+        "sha256": ""
+    },
     "runtimeUser": "cka-runtime",
 }
 print(json.dumps(manifest, ensure_ascii=False, indent=2))
