@@ -13,6 +13,7 @@ Options:
   --public-base-url <url>    Public artifact base URL. Default: https://artifacts.sweetlabs.kr.
 
 The script publishes:
+  runtime/installer/install.sh
   runtime/bundles/cert-runtime-<version>.tar.gz
   runtime/bundles/cert-runtime-<version>.tar.gz.sha256
   runtime/images/<image-name>-<version>.<ext>      when --image is provided
@@ -71,6 +72,14 @@ ENV_FILE_ABS="$(cd "${REPO_ROOT}" && realpath "${ENV_FILE}")"
 DIST_DIR="${REPO_ROOT}/${OUTPUT_DIR}"
 mkdir -p "${DIST_DIR}"
 
+INSTALLER_PATH="${REPO_ROOT}/scripts/install-runtime-node.sh"
+INSTALLER_KEY="runtime/installer/install.sh"
+if [[ ! -f "${INSTALLER_PATH}" ]]; then
+  echo "runtime node installer not found: ${INSTALLER_PATH}" >&2
+  exit 1
+fi
+python3 "${REPO_ROOT}/scripts/r2_object.py" --env-file "${ENV_FILE_ABS}" put --file "${INSTALLER_PATH}" --key "${INSTALLER_KEY}" --content-type text/x-shellscript >/dev/null
+
 "${REPO_ROOT}/scripts/package-runtime-bundle.sh" --version "${VERSION}" --output-dir "${OUTPUT_DIR}" >/dev/null
 
 BUNDLE_NAME="cert-runtime-${VERSION}.tar.gz"
@@ -94,6 +103,9 @@ if [[ -n "${IMAGE_PATH}" ]]; then
   IMAGE_BASENAME="$(basename "${IMAGE_ABS}")"
   IMAGE_OUTPUT_NAME="${IMAGE_BASENAME}"
   IMAGE_SOURCE="${IMAGE_ABS}"
+  IMAGE_CANONICAL_NAME="${IMAGE_BASENAME%.zst}"
+  IMAGE_FAMILY_NAME="${IMAGE_CANONICAL_NAME%.qcow2}"
+  IMAGE_INSTALL_PATH="/var/lib/cka/images/base/${IMAGE_FAMILY_NAME}/${IMAGE_CANONICAL_NAME}"
   if [[ "${IMAGE_BASENAME}" != *.zst ]]; then
     IMAGE_OUTPUT_NAME="${IMAGE_BASENAME}.zst"
     IMAGE_SOURCE="${DIST_DIR}/${IMAGE_OUTPUT_NAME}"
@@ -125,6 +137,7 @@ print(json.dumps({
     "sha256": ${IMAGE_SHA@Q},
     "sizeBytes": int(${IMAGE_SIZE@Q}),
     "compression": "zstd",
+    "installPath": ${IMAGE_INSTALL_PATH@Q},
 }))
 PY
 )"
@@ -155,19 +168,38 @@ manifest = {
     },
     "goldenImage": json.loads(${GOLDEN_JSON@Q}),
     "requiredPackages": [
+        "ansible",
+        "bridge-utils",
+        "ca-certificates",
+        "cloud-init",
+        "cloud-image-utils",
+        "conntrack",
+        "curl",
+        "dmidecode",
+        "docker.io",
+        "dnsmasq-base",
+        "genisoimage",
+        "iptables",
+        "jq",
+        "libguestfs-tools",
         "qemu-kvm",
         "libvirt-daemon-system",
         "libvirt-clients",
-        "virtinst",
-        "cloud-image-utils",
-        "genisoimage",
-        "dnsmasq-base",
-        "docker.io",
-        "jq",
-        "curl",
+        "mdevctl",
+        "parted",
         "python3",
+        "qemu-utils",
+        "rsync",
+        "tar",
+        "unzip",
+        "virtinst",
         "zstd"
     ],
+    "kind": {
+        "version": "v0.23.0",
+        "url": "https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64",
+        "sha256": ""
+    },
     "runtimeUser": "cka-runtime",
 }
 print(json.dumps(manifest, ensure_ascii=False, indent=2))
@@ -176,6 +208,7 @@ PY
 python3 "${REPO_ROOT}/scripts/r2_object.py" --env-file "${ENV_FILE_ABS}" put --file "${MANIFEST_PATH}" --key "${MANIFEST_KEY}" --content-type application/json >/dev/null
 
 printf 'bundle_url=%s/%s\n' "${PUBLIC_BASE_URL%/}" "${BUNDLE_KEY}"
+printf 'installer_url=%s/%s\n' "${PUBLIC_BASE_URL%/}" "${INSTALLER_KEY}"
 printf 'manifest_url=%s/%s\n' "${PUBLIC_BASE_URL%/}" "${MANIFEST_KEY}"
 if [[ "${GOLDEN_JSON}" != "null" ]]; then
   python3 - <<PY

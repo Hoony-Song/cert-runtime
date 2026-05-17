@@ -14,7 +14,7 @@ storage class: Standard
 
 ```text
 runtime/
-  installer/
+  installer/install.sh
   bundles/
   images/
   manifests/
@@ -85,3 +85,13 @@ runtime/manifests/runtime-node-<version>.json
 ```
 
 manifest에는 runtime bundle URL, checksum, golden image URL/checksum, 필수 패키지 목록, 설치 기준 runtime root가 포함된다.
+
+## Join Installer
+
+Admin에서 생성한 one-line command는 아래 installer를 사용한다.
+
+```text
+https://artifacts.sweetlabs.kr/runtime/installer/install.sh
+```
+
+installer는 manifest를 내려받아 필수 패키지, kind, runtime bundle, golden image를 설치하고 platform API에 단계 상태와 최종 resource profile을 보고한다. join token 원문은 Runtime Node에서 API 호출에만 사용하고 저장하지 않는다.
