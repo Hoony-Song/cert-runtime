@@ -165,6 +165,7 @@ LOG_DIR="${SESSION_DIR}/logs"
 KUBECONFIG_DIR="${SESSION_DIR}/kubeconfig"
 STATE_FILE="${SESSION_DIR}/state.json"
 INVENTORY_FILE="${SESSION_DIR}/inventory.ini"
+FAILURE_LOG_ROOT="${CKA_FAILURE_LOG_ROOT:-/var/lib/cka/logs/provision-failures}"
 CURRENT_STEP="init"
 CP_NODE_NAME="cka0001"
 KIND_NODE_NAME="cka0002"
@@ -205,11 +206,31 @@ write_state "PROVISIONING" "init"
 handle_failure() {
   local exit_code=$?
   local message
+  local failure_log_dir
 
   message="step ${CURRENT_STEP} 실패"
+  failure_log_dir="${FAILURE_LOG_ROOT}/${SESSION_ID}"
   write_state "PROVISION_FAILED" "${CURRENT_STEP}" "${message}"
-  "${SCRIPT_DIR}/cleanup-session.sh" --session-id "${SESSION_ID}" --exam-type "${EXAM_TYPE}" --exam-set-id "${EXAM_SET_ID}" --verbose >>"${LOG_DIR}/cleanup-after-failure.log" 2>&1 || true
-  printf '{"sessionId":"%s","status":"PROVISION_FAILED","failedStep":"%s","logDir":"%s"}\n' "${SESSION_ID}" "${CURRENT_STEP}" "${LOG_DIR}" >&2
+
+  mkdir -p "${failure_log_dir}" 2>/dev/null || failure_log_dir="${LOG_DIR}"
+  if [[ -d "${LOG_DIR}" ]]; then
+    cp -a "${LOG_DIR}/." "${failure_log_dir}/" 2>/dev/null || true
+  fi
+  if [[ -f "${STATE_FILE}" ]]; then
+    cp -f "${STATE_FILE}" "${failure_log_dir}/state.json" 2>/dev/null || true
+  fi
+
+  {
+    printf 'provision failed at step: %s\n' "${CURRENT_STEP}"
+    printf 'failure log dir: %s\n' "${failure_log_dir}"
+    if [[ -f "${LOG_DIR}/${CURRENT_STEP}.log" ]]; then
+      printf '%s\n' "--- ${CURRENT_STEP}.log tail ---"
+      tail -n 80 "${LOG_DIR}/${CURRENT_STEP}.log" || true
+    fi
+  } >&2
+
+  "${SCRIPT_DIR}/cleanup-session.sh" --session-id "${SESSION_ID}" --exam-type "${EXAM_TYPE}" --exam-set-id "${EXAM_SET_ID}" --verbose >>"${failure_log_dir}/cleanup-after-failure.log" 2>&1 || true
+  printf '{"sessionId":"%s","status":"PROVISION_FAILED","failedStep":"%s","logDir":"%s","failureLogDir":"%s"}\n' "${SESSION_ID}" "${CURRENT_STEP}" "${LOG_DIR}" "${failure_log_dir}" >&2
   exit "${exit_code}"
 }
 trap handle_failure ERR
