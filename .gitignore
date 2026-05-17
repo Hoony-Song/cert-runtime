@@ -7,6 +7,7 @@ __pycache__/
 .mypy_cache/
 .env
 .env.*
+s3.env
 *.pem
 *.key
 id_rsa*
@@ -15,5 +16,7 @@ id_rsa*
 *.img
 /sessions/
 /artifacts/
+/dist/
+/dist-test/
 /images/base/*.qcow2
 /images/sessions/

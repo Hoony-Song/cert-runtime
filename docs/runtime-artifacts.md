@@ -1,0 +1,87 @@
+# Runtime Artifacts
+
+Runtime Node join installer는 Cloudflare R2에 게시된 버전 고정 artifact를 사용한다.
+
+## Bucket
+
+```text
+bucket: sweetlabs-artifacts
+public base URL: https://artifacts.sweetlabs.kr
+storage class: Standard
+```
+
+객체 경로:
+
+```text
+runtime/
+  installer/
+  bundles/
+  images/
+  manifests/
+```
+
+## Local Credential File
+
+로컬 업로드 자격 증명은 Git에 저장하지 않는다.
+
+```text
+s3.env
+```
+
+지원하는 key 이름:
+
+```text
+Access Key ID=<redacted>
+Secret Access Key=<redacted>
+endpoints=https://<account-id>.r2.cloudflarestorage.com
+```
+
+표준 이름도 사용할 수 있다.
+
+```text
+R2_ACCESS_KEY_ID=<redacted>
+R2_SECRET_ACCESS_KEY=<redacted>
+R2_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+R2_BUCKET=sweetlabs-artifacts
+R2_PUBLIC_BASE_URL=https://artifacts.sweetlabs.kr
+```
+
+## Smoke Test
+
+```bash
+python3 scripts/r2_object.py --env-file s3.env smoke
+```
+
+성공하면 아래 공개 URL로 테스트 객체가 다운로드된다.
+
+```text
+https://artifacts.sweetlabs.kr/runtime/installer/ping.txt
+```
+
+## Publish Runtime Bundle
+
+Golden image 없이 runtime bundle과 manifest만 게시:
+
+```bash
+scripts/publish-runtime-artifacts.sh --version v20260517
+```
+
+Golden image까지 게시:
+
+```bash
+scripts/publish-runtime-artifacts.sh \
+  --version v20260517 \
+  --image /var/lib/cka/images/base/cka-ubuntu-22.04-kubeadm-1.30-v1/cka-ubuntu-22.04-kubeadm-1.30-v1.qcow2
+```
+
+`--image`가 압축되지 않은 qcow2이면 `.zst`로 압축한 뒤 게시한다.
+
+## Manifest
+
+게시 스크립트는 아래 manifest를 업로드한다.
+
+```text
+runtime/manifests/runtime-node-<version>.json
+```
+
+manifest에는 runtime bundle URL, checksum, golden image URL/checksum, 필수 패키지 목록, 설치 기준 runtime root가 포함된다.
