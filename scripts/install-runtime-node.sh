@@ -309,6 +309,12 @@ install_golden_image() {
   if [[ -z "${GOLDEN_INSTALL_PATH}" ]]; then
     GOLDEN_INSTALL_PATH="${RUNTIME_ROOT}/images/base/cka-ubuntu-22.04-kubeadm-1.30-v1/cka-ubuntu-22.04-kubeadm-1.30-v1.qcow2"
   fi
+  if [[ -s "${GOLDEN_INSTALL_PATH}" ]]; then
+    echo "golden image already exists, skipping download: ${GOLDEN_INSTALL_PATH}"
+    chown "${RUNTIME_USER}:kvm" "${GOLDEN_INSTALL_PATH}" || true
+    chmod 0660 "${GOLDEN_INSTALL_PATH}"
+    return 0
+  fi
   local image_download="${WORK_DIR}/$(basename "${GOLDEN_URL}")"
   download_file "${GOLDEN_URL}" "${image_download}"
   verify_sha256 "${image_download}" "${GOLDEN_SHA256}"
