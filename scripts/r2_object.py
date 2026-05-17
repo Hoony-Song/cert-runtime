@@ -17,8 +17,8 @@ import urllib.request
 from pathlib import Path
 
 
-DEFAULT_BUCKET = "sweetlabs-artifacts"
-DEFAULT_PUBLIC_BASE_URL = "https://artifacts.sweetlabs.kr"
+DEFAULT_BUCKET = ""
+DEFAULT_PUBLIC_BASE_URL = ""
 DEFAULT_REGION = "auto"
 SERVICE = "s3"
 

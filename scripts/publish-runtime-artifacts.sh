@@ -12,7 +12,7 @@ Options:
   --image <path>             Optional golden image qcow2 or qcow2.zst to publish.
   --question-bank-root <dir> Optional question-bank root to publish.
   --cri-dockerd-deb <path>   Optional Q017 cri-dockerd deb asset to publish.
-  --public-base-url <url>    Public artifact base URL. Default: https://artifacts.sweetlabs.kr.
+  --public-base-url <url>    Public artifact base URL. Required unless R2_PUBLIC_BASE_URL is set.
 
 The script publishes:
   runtime/installer/install.sh
@@ -34,7 +34,7 @@ OUTPUT_DIR="dist"
 IMAGE_PATH=""
 QUESTION_BANK_ROOT=""
 CRI_DOCKERD_DEB=""
-PUBLIC_BASE_URL="https://artifacts.sweetlabs.kr"
+PUBLIC_BASE_URL="${R2_PUBLIC_BASE_URL:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -80,6 +80,11 @@ done
 
 if [[ -z "${VERSION}" ]]; then
   echo "--version must not be empty" >&2
+  exit 2
+fi
+
+if [[ -z "${PUBLIC_BASE_URL}" ]]; then
+  echo "--public-base-url or R2_PUBLIC_BASE_URL is required" >&2
   exit 2
 fi
 

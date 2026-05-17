@@ -3,10 +3,10 @@ set -Eeuo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: install-runtime-node.sh --join-token <token> [options]
+Usage: install-runtime-node.sh --join-token <token> --api-url <url> --manifest-url <url> [options]
 
 Options:
-  --api-url <url>               Platform API URL. Default: https://api.sweetlabs.kr
+  --api-url <url>               Platform API URL.
   --manifest-url <url>          Runtime artifact manifest URL.
   --authorized-key <key>        SSH public key allowed for cka-runtime.
   --authorized-key-file <path>  File containing SSH public keys.
@@ -20,8 +20,8 @@ USAGE
 }
 
 JOIN_TOKEN=""
-API_URL="https://api.sweetlabs.kr"
-MANIFEST_URL="https://artifacts.sweetlabs.kr/runtime/manifests/runtime-node-v20260517-runtime-node-v2.json"
+API_URL=""
+MANIFEST_URL=""
 AUTHORIZED_KEY=""
 AUTHORIZED_KEY_FILE=""
 VM_ADMIN_AUTHORIZED_KEY=""
@@ -76,6 +76,16 @@ done
 
 if [[ -z "${JOIN_TOKEN}" ]]; then
   echo "--join-token is required" >&2
+  exit 2
+fi
+
+if [[ -z "${API_URL}" ]]; then
+  echo "--api-url is required" >&2
+  exit 2
+fi
+
+if [[ -z "${MANIFEST_URL}" ]]; then
+  echo "--manifest-url is required" >&2
   exit 2
 fi
 
