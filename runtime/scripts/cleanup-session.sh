@@ -70,11 +70,33 @@ record_action() {
   fi
 }
 
+iptables_command() {
+  local iptables_bin
+
+  iptables_bin="$(command -v iptables || true)"
+  if [[ -z "${iptables_bin}" ]]; then
+    return 1
+  fi
+
+  if [[ "${EUID}" -eq 0 ]]; then
+    printf '%s\n' "${iptables_bin}"
+    return 0
+  fi
+
+  if sudo -n "${iptables_bin}" -L -n >/dev/null 2>&1; then
+    printf 'sudo -n %s\n' "${iptables_bin}"
+    return 0
+  fi
+
+  return 1
+}
+
 remove_bastion_firewall_rule() {
   local container_name="$1"
   local container_ip
+  local iptables_cmd
 
-  if ! command -v iptables >/dev/null 2>&1 || ! command -v docker >/dev/null 2>&1; then
+  if ! command -v docker >/dev/null 2>&1; then
     return 0
   fi
 
@@ -83,8 +105,14 @@ remove_bastion_firewall_rule() {
     return 0
   fi
 
-  while iptables -C LIBVIRT_FWI -s "${container_ip}/32" -d 192.168.122.0/24 -o virbr0 -j ACCEPT >/dev/null 2>&1; do
-    iptables -D LIBVIRT_FWI -s "${container_ip}/32" -d 192.168.122.0/24 -o virbr0 -j ACCEPT || break
+  iptables_cmd="$(iptables_command || true)"
+  if [[ -z "${iptables_cmd}" ]]; then
+    return 0
+  fi
+
+  # shellcheck disable=SC2086
+  while ${iptables_cmd} -C LIBVIRT_FWI -s "${container_ip}/32" -d 192.168.122.0/24 -o virbr0 -j ACCEPT >/dev/null 2>&1; do
+    ${iptables_cmd} -D LIBVIRT_FWI -s "${container_ip}/32" -d 192.168.122.0/24 -o virbr0 -j ACCEPT || break
   done
 }
 

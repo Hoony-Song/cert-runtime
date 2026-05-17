@@ -180,6 +180,8 @@ bundle = manifest.get("runtimeBundle") or {}
 golden = manifest.get("goldenImage") or {}
 kind = manifest.get("kind") or {}
 kubectl = manifest.get("kubectl") or {}
+question_bank = manifest.get("questionBank") or {}
+cri_dockerd = manifest.get("criDockerdDeb") or {}
 packages = manifest.get("requiredPackages") or []
 
 def emit(name, value):
@@ -200,6 +202,12 @@ emit("KIND_URL", kind.get("url") or "https://kind.sigs.k8s.io/dl/v0.23.0/kind-li
 emit("KIND_SHA256", kind.get("sha256") or "")
 emit("KUBECTL_URL", kubectl.get("url") or "https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl")
 emit("KUBECTL_SHA256", kubectl.get("sha256") or "")
+emit("QUESTION_BANK_URL", question_bank.get("url") or "")
+emit("QUESTION_BANK_SHA256", question_bank.get("sha256") or "")
+emit("QUESTION_BANK_EXTRACT_TO", question_bank.get("extractTo") or "")
+emit("CRI_DOCKERD_URL", cri_dockerd.get("url") or "")
+emit("CRI_DOCKERD_SHA256", cri_dockerd.get("sha256") or "")
+emit("CRI_DOCKERD_INSTALL_PATH", cri_dockerd.get("installPath") or "")
 print("REQUIRED_PACKAGES=(" + " ".join(shlex.quote(str(item)) for item in packages) + ")")
 PY
   # shellcheck disable=SC1090
@@ -271,7 +279,7 @@ setup_runtime_user() {
   fi
 
   cat >/etc/sudoers.d/cka-runtime <<'SUDOERS'
-cka-runtime ALL=(root) NOPASSWD: /usr/bin/docker, /usr/local/bin/kind, /usr/bin/virsh, /usr/bin/virt-install, /usr/bin/qemu-img, /usr/bin/cloud-localds, /usr/bin/systemctl
+cka-runtime ALL=(root) NOPASSWD: /usr/bin/docker, /usr/local/bin/kind, /usr/bin/virsh, /usr/bin/virt-install, /usr/bin/qemu-img, /usr/bin/cloud-localds, /usr/bin/systemctl, /usr/sbin/iptables, /sbin/iptables
 SUDOERS
   chmod 0440 /etc/sudoers.d/cka-runtime
 }
@@ -312,6 +320,39 @@ install_runtime_bundle() {
   mkdir -p "${BUNDLE_EXTRACT_TO}"
   tar -xzf "${bundle_path}" -C "${BUNDLE_EXTRACT_TO}"
   chown -R "${RUNTIME_USER}:kvm" "${RUNTIME_ROOT}" || true
+}
+
+install_question_bank() {
+  if [[ -z "${QUESTION_BANK_URL}" ]]; then
+    return 0
+  fi
+  if [[ -z "${QUESTION_BANK_EXTRACT_TO}" ]]; then
+    QUESTION_BANK_EXTRACT_TO="${RUNTIME_ROOT}/question-bank"
+  fi
+  local question_bank_path="${WORK_DIR}/question-bank.tar.gz"
+  local question_bank_tmp="${QUESTION_BANK_EXTRACT_TO}.tmp"
+  download_file "${QUESTION_BANK_URL}" "${question_bank_path}"
+  verify_sha256 "${question_bank_path}" "${QUESTION_BANK_SHA256}"
+  rm -rf "${question_bank_tmp}"
+  mkdir -p "${question_bank_tmp}" "$(dirname "${QUESTION_BANK_EXTRACT_TO}")"
+  tar -xzf "${question_bank_path}" -C "${question_bank_tmp}"
+  rm -rf "${QUESTION_BANK_EXTRACT_TO}"
+  mv "${question_bank_tmp}" "${QUESTION_BANK_EXTRACT_TO}"
+  chown -R "${RUNTIME_USER}:kvm" "${QUESTION_BANK_EXTRACT_TO}" || true
+}
+
+install_cri_dockerd_asset() {
+  if [[ -z "${CRI_DOCKERD_URL}" ]]; then
+    return 0
+  fi
+  if [[ -z "${CRI_DOCKERD_INSTALL_PATH}" ]]; then
+    CRI_DOCKERD_INSTALL_PATH="${RUNTIME_ROOT}/assets/cri-dockerd_0.3.6.3-0.ubuntu-jammy_amd64.deb"
+  fi
+  local cri_dockerd_path="${WORK_DIR}/cri-dockerd.deb"
+  download_file "${CRI_DOCKERD_URL}" "${cri_dockerd_path}"
+  verify_sha256 "${cri_dockerd_path}" "${CRI_DOCKERD_SHA256}"
+  install -d -o "${RUNTIME_USER}" -g kvm -m 2770 "$(dirname "${CRI_DOCKERD_INSTALL_PATH}")"
+  install -m 0660 -o "${RUNTIME_USER}" -g kvm "${cri_dockerd_path}" "${CRI_DOCKERD_INSTALL_PATH}"
 }
 
 install_golden_image() {
@@ -405,6 +446,14 @@ prepare_runtime_dirs
 CURRENT_STEP="runtime-bundle"
 report_status "INSTALLING" "${CURRENT_STEP}" "installing runtime bundle"
 install_runtime_bundle
+
+CURRENT_STEP="question-bank"
+report_status "INSTALLING" "${CURRENT_STEP}" "installing question bank"
+install_question_bank
+
+CURRENT_STEP="cri-dockerd"
+report_status "INSTALLING" "${CURRENT_STEP}" "installing cri-dockerd asset"
+install_cri_dockerd_asset
 
 CURRENT_STEP="golden-image"
 report_status "INSTALLING" "${CURRENT_STEP}" "installing golden image"

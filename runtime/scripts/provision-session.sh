@@ -148,7 +148,7 @@ build_bastion_image_if_needed() {
     return 0
   fi
 
-  docker build -t "${BASTION_IMAGE}" "${REPO_ROOT}/bastion"
+  docker build --network host -t "${BASTION_IMAGE}" "${REPO_ROOT}/bastion"
 }
 
 require_value "--session-id" "${SESSION_ID}"

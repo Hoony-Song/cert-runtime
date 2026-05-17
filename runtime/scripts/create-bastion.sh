@@ -75,6 +75,27 @@ require_existing_dir() {
   fi
 }
 
+iptables_command() {
+  local iptables_bin
+
+  iptables_bin="$(command -v iptables || true)"
+  if [[ -z "${iptables_bin}" ]]; then
+    return 1
+  fi
+
+  if [[ "${EUID}" -eq 0 ]]; then
+    printf '%s\n' "${iptables_bin}"
+    return 0
+  fi
+
+  if sudo -n "${iptables_bin}" -L -n >/dev/null 2>&1; then
+    printf 'sudo -n %s\n' "${iptables_bin}"
+    return 0
+  fi
+
+  return 1
+}
+
 require_value "--session-id" "${SESSION_ID}"
 require_safe_session_id "${SESSION_ID}"
 require_absolute_path "--session-root" "${SESSION_ROOT}"
@@ -134,9 +155,15 @@ docker run -d \
   "${IMAGE}" >/dev/null
 
 BASTION_IP="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "${CONTAINER_NAME}")"
-if [[ -n "${BASTION_IP}" ]] && command -v iptables >/dev/null 2>&1; then
-  sudo iptables -C LIBVIRT_FWI -s "${BASTION_IP}/32" -d "${VM_NETWORK_CIDR}" -o "${VM_NETWORK_IFACE}" -j ACCEPT >/dev/null 2>&1 \
-    || sudo iptables -I LIBVIRT_FWI 1 -s "${BASTION_IP}/32" -d "${VM_NETWORK_CIDR}" -o "${VM_NETWORK_IFACE}" -j ACCEPT
+if [[ -n "${BASTION_IP}" ]]; then
+  IPTABLES_CMD="$(iptables_command || true)"
+  if [[ -n "${IPTABLES_CMD}" ]]; then
+    # shellcheck disable=SC2086
+    ${IPTABLES_CMD} -C LIBVIRT_FWI -s "${BASTION_IP}/32" -d "${VM_NETWORK_CIDR}" -o "${VM_NETWORK_IFACE}" -j ACCEPT >/dev/null 2>&1 \
+      || ${IPTABLES_CMD} -I LIBVIRT_FWI 1 -s "${BASTION_IP}/32" -d "${VM_NETWORK_CIDR}" -o "${VM_NETWORK_IFACE}" -j ACCEPT
+  else
+    echo "iptables NOPASSWD 권한이 없어 bastion firewall rule을 건너뜁니다." >&2
+  fi
 fi
 
 if [[ "${VERBOSE}" == true ]]; then
